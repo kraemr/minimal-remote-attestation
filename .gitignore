@@ -1,0 +1,3 @@
+common/libcbor
+common/tpm2-tss
+agent/agent
