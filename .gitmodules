@@ -1,0 +1,15 @@
+[submodule "common/libcbor"]
+	path = common/libcbor
+	url = git@github.com:PJK/libcbor.git
+[submodule "common/tpm2-tss"]
+	path = common/tpm2-tss
+	url = git@github.com:tpm2-software/tpm2-tss.git
+[submodule "common/json"]
+	path = common/json
+	url = git@github.com:nlohmann/json.git
+[submodule "common/tpm2-tools"]
+	path = common/tpm2-tools
+	url = git@github.com:tpm2-software/tpm2-tools.git
+[submodule "common/cpp-httplib"]
+	path = common/cpp-httplib
+	url = git@github.com:yhirose/cpp-httplib.git
