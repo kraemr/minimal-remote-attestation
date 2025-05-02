@@ -1,8 +1,8 @@
 # Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 
-LDFLAGS = -lssl -lcrypto -fsanitize=address -ltss2-esys -ltss2-mu -lcbor
+CFLAGS = -Wall -Wextra 
+LDFLAGS = -lssl -lcrypto -fsanitize=address -ltss2-esys -ltss2-mu -lcbor -lcurl 
 
 AGENT_SRC = agent.c
 VERIFY_SRC = $(wildcard ../../ima_verify/src/*.c)

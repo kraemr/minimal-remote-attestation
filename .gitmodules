@@ -10,3 +10,6 @@
 [submodule "common/tpm2-tools"]
 	path = common/tpm2-tools
 	url = git@github.com:tpm2-software/tpm2-tools.git
+[submodule "common/cpp-httplib"]
+	path = common/cpp-httplib
+	url = git@github.com:yhirose/cpp-httplib.git

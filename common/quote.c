@@ -4,6 +4,10 @@
 
 #define AK_PERSISTENT_HANDLE 0x81010001
 
+
+
+
+
 TSS2_RC createAttestationKey( 
   ESYS_CONTEXT* ctx ,
   ESYS_TR* attestationKeyHandle, 
@@ -26,6 +30,7 @@ TSS2_RC createAttestationKey(
                   },
           },
   };
+
   TPM2B_PUBLIC inPublic = {
       .size = 0,
       .publicArea =
@@ -40,6 +45,7 @@ TSS2_RC createAttestationKey(
                   {
                       .size = 0,
                   },
+                
               .parameters.rsaDetail =
                   {
                       .symmetric =
