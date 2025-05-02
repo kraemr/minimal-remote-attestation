@@ -13,3 +13,6 @@
 [submodule "common/cpp-httplib"]
 	path = common/cpp-httplib
 	url = git@github.com:yhirose/cpp-httplib.git
+[submodule "common/ima_log_lib"]
+	path = common/ima_log_lib
+	url = git@github.com:kraemr/ima_log_lib.git

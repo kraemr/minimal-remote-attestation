@@ -1,5 +1,5 @@
-#include "../../ima_verify/inc/ima_template_parser.h"
-#include "../../ima_verify/inc/ima_verify.h"
+#include "../common/ima_log_lib/inc/ima_template_parser.h"
+#include "../common/ima_log_lib/inc/ima_verify.h"
 #include "../common/libcbor/src/cbor.h"
 #include "../common/quote.h"
 #include "../common/request.h"

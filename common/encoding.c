@@ -12,16 +12,12 @@
 #include <string.h>
 #include <tss2/tss2_mu.h>
 #include <tss2/tss2_tpm2_types.h>
-#include "../../ima_verify/inc/ima_template_parser.h"
-#include "../../ima_verify/inc/ima_verify.h"
+#include "../common/ima_log_lib/inc/ima_template_parser.h"
+#include "../common/ima_log_lib/inc/ima_verify.h"
 #include "libcbor/src/cbor/arrays.h"
 
 
 extern void displayDigest(uint8_t *pcr, int32_t n);
-
-
-
-
 int32_t encodeAttestationCbor( TPM2B_ATTEST attest, uint8_t** serializedOut,size_t* lengthOut) {
     cbor_item_t* item = cbor_build_bytestring(attest.attestationData,attest.size);
     cbor_serialize_alloc(item,serializedOut,lengthOut);
