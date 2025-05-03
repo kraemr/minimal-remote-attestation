@@ -17,12 +17,18 @@
 
 #define BUFFERSIZE 100
 
+extern TSS2_RC readDevId(ESYS_CONTEXT* esys_ctx,uint8_t buf[64]);
+extern TSS2_RC writeDevId(ESYS_CONTEXT* esys_ctx,const uint8_t* data, uint32_t size);
+
+
 // get dev id from server should obviously happen over a secure channel, as this
 // is a secret
 void getDevIdFromServer() {}
 
 // persist devid to identify the device uniquely
-void persistDevId() {}
+void persistDevId(uint8_t* buffer, uint32_t length) {
+
+}
 
 // never gets persisted in tpm
 void getSessionIdServer() {}
@@ -90,6 +96,8 @@ int32_t main(int32_t argc, char *argv[]) {
   uint16_t hashType = 0;
   int fd = -1;
 
+  
+
   if (argc < 3) {
     printf("Missing Args usage: ./agent pathToIMALogSha256 sha256\n");
     return 1;
@@ -114,8 +122,7 @@ int32_t main(int32_t argc, char *argv[]) {
     sleep(1);
     // TODO: make this completely hashalgo agnostic
     memset(sha256,0,sizeof(ImaEventSha256) * BUFFERSIZE );
-    currentCount = readIMALogSha256(fd, sha256, BUFFERSIZE, CRYPTO_AGILE_SHA256);
-
+    currentCount = readImaLog(fd,CRYPTO_AGILE_SHA256,sha256, BUFFERSIZE);
     if (currentCount == 0) {
       goto sleep;
     }

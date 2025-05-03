@@ -12,8 +12,8 @@
 #include "../../common/encoding.h"
 #include "../inc/sessions.hpp"
 
-#include "../../../ima_verify/inc/types.h"
-#include "../../../ima_verify/inc/ima_verify.h"
+#include "../../common/ima_log_lib/inc/ima_verify.h"
+#include "../../common/ima_log_lib/inc/types.h"
 
 extern void displayDigest(uint8_t *pcr, int32_t n);
 
@@ -39,14 +39,7 @@ int main() {
         struct ImaEventSha256* events = NULL;
         size_t size = 0;
         int32_t t = decodeImaEvents( (uint8_t*)content.data(), content.size(),&events,&size);
-        //printf(" event Count: %zu ");
-        /*for (int i = 0; i < size; i++) {
-            printf("%d: ",f);
-            displayDigest(events[i].hashOfTemplate,SHA256_DIGEST_LENGTH);           
-            f++;
-        }*/
-
-        calculateQuote(events,size,pcrs);
+        calculateQuote(events,size,pcrs, CRYPTO_AGILE_SHA256);
         displayDigest(pcrs[10],SHA256_DIGEST_LENGTH);
 
         std::string sessionId = req.get_header_value("Session-ID");

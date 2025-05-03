@@ -65,7 +65,6 @@ cbor_item_t* encodeImaEvent(struct ImaEventSha256* event) {
     result = cbor_array_push(array, cbor_build_uint32(event->pcrIndex));
     result = cbor_array_push(array, cbor_build_uint32(event->templateDataLength));    
     result = cbor_array_push(array, cbor_build_uint32(event->templateNameLength));
-    result = cbor_array_push(array, cbor_build_uint32(event->templateType));
     result = cbor_array_push(array, cbor_build_bytestring(event->templateName,event->templateNameLength));
     result = cbor_array_push(array, cbor_build_bytestring(event->hashOfTemplate,SHA256_DIGEST_LENGTH));
     result = cbor_array_push(array, cbor_build_bytestring(event->templateData,event->templateDataLength));
@@ -105,8 +104,6 @@ ImaEventSha256 decodeImaEvent(cbor_item_t* item){
     event.pcrIndex = cbor_get_uint32(pcr);
     event.templateDataLength = cbor_get_uint32(templateDataLength);
     event.templateNameLength = cbor_get_uint32(templateNameLength);
-    event.templateType = cbor_get_uint32(templateType);
-
     event.templateData = malloc(event.templateDataLength);    
     memcpy(event.hashOfTemplate,hashOfTemplate->data,SHA256_DIGEST_LENGTH);
 
