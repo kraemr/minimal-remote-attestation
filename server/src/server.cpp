@@ -1,17 +1,16 @@
 #ifndef HTTPLIB_H
 #define HTTPLIB_H
     #include "../../common/cpp-httplib/httplib.h"
-#include <cstdint>
-#include <exception>
-#include <openssl/evp.h>
-#include <openssl/sha.h>
-#include <stdint.h>
-#include <tss2/tss2_common.h>
-#include <tss2/tss2_tpm2_types.h>
+    #include <exception>
+    #include <openssl/evp.h>
+    #include <openssl/sha.h>
+    #include <stdint.h>
+    #include <tss2/tss2_common.h>
+    #include <tss2/tss2_tpm2_types.h>
 #endif
+
 #include "../../common/encoding.h"
 #include "../inc/sessions.hpp"
-
 #include "../../common/ima_log_lib/inc/ima_verify.h"
 #include "../../common/ima_log_lib/inc/types.h"
 

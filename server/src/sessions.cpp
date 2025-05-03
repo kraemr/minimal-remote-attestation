@@ -10,7 +10,14 @@ char* uuid(char out[UUID_STR_LEN]){
   return out;
 }
 
-void createSessionAndDevID(){
+
+// generates a DevId, a {DEV_ID}.sqlite database is created
+// This database houses Sessions
+void createDevId() {
+  
+}
+
+void createSession(){
 
 }
 
@@ -19,14 +26,14 @@ void createSessionWithDevID(){
 }
 
 // better to pass by ref as ServerSession is "large"
-void createSessionFile( ServerSession* session ){
+void createSession( ServerSession* session ){
 
 }
 
-void updateSessionFile( ServerSession* session ){
+void updateSession( ServerSession* session ){
 
 }
 
-void deleteSessionFile( const char* path ){
+void deleteSession( const char* path ){
 
 }
