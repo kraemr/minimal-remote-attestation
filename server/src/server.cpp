@@ -33,7 +33,6 @@ int main() {
             std::cout << "got no events ?" << std::endl;
             return;
         }
-
         // Probably would be better to keep a static buffer, that is same size as client, so no memory allocs are actually needed
         struct ImaEventSha256* events = NULL;
         size_t size = 0;
@@ -43,7 +42,6 @@ int main() {
 
         std::string sessionId = req.get_header_value("Session-ID");
         res.set_content("", "application/cbor");
-
     });
 
     // Get the Signing Key from the client

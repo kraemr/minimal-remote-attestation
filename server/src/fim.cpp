@@ -21,13 +21,16 @@ typedef struct MeasurementsDeviceId {
     std::vector<MeasurementSession> sessions;
 }MeasurementsDeviceId;
 
+
+
+
 // add a Measurement to a session of a DevId
 // on success return > 0
 // on failure return 0 or lower
-int32_t addMeasurement(std::vector<uint8_t> devId,std::vector<uint8_t> sessionId, Measurement measurement){
+int32_t addMeasurement(std::vector<uint8_t> devId,std::vector<uint8_t> sessionId, Measurement& measurement){
+
     return 1;
 }
-
 
 int32_t getMeasurementsBySession(std::vector<uint8_t> sessionId, std::vector<Measurement>& measurements) {
     return 1;
@@ -37,4 +40,5 @@ int32_t getAllMeasurementsByDevice(std::vector<uint8_t> sessionId, std::vector<M
     // retrieve all sessions
     // join them
     // and return them
+    return 1;
 }
