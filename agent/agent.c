@@ -15,7 +15,7 @@
 #include <tss2/tss2_tpm2_types.h>
 #include <unistd.h>
 
-#define BUFFERSIZE 100
+#define BUFFERSIZE 500
 
 extern TSS2_RC readDevId(ESYS_CONTEXT* esys_ctx,uint8_t buf[64]);
 extern TSS2_RC writeDevId(ESYS_CONTEXT* esys_ctx,const uint8_t* data, uint32_t size);

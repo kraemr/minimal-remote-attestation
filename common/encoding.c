@@ -14,6 +14,7 @@
 #include <tss2/tss2_tpm2_types.h>
 #include "../common/ima_log_lib/inc/ima_template_parser.h"
 #include "../common/ima_log_lib/inc/ima_verify.h"
+#include "ima_log_lib/inc/types.h"
 #include "libcbor/src/cbor/arrays.h"
 
 
@@ -59,16 +60,67 @@ int32_t decodePublicKey(const uint8_t* cborData,uint32_t cborDataLen, TPM2B_PUBL
     return 0;
 }
 
+ImaEventSha256 decodeImaEvent(cbor_item_t* item){
+    ImaEventSha256 event;
+    size_t allocatedSize = cbor_array_size(item);
+    if(allocatedSize < 6){
+        printf("elements missing\n");
+    }
+    cbor_item_t* pcr = cbor_array_get(item,0);
+    cbor_item_t* templateDataLength = cbor_array_get(item,1);
+    cbor_item_t* templateNameLength = cbor_array_get(item,2);    
+    cbor_item_t* templateName = cbor_array_get(item,3);
+    cbor_item_t* hashOfTemplate = cbor_array_get(item,4);
+    cbor_item_t* templateData = cbor_array_get(item,5);
+
+    event.pcrIndex = cbor_get_uint32(pcr);
+    event.templateDataLength = cbor_get_uint32(templateDataLength);
+    event.templateNameLength = cbor_get_uint32(templateNameLength);
+    event.templateData = malloc(event.templateDataLength);    
+    
+    memcpy(event.hashOfTemplate,hashOfTemplate->data,SHA256_DIGEST_LENGTH);
+    memcpy(event.templateData,templateData->data,event.templateDataLength);
+    memcpy(event.templateName, templateName->data,event.templateNameLength );
+    
+    return event;
+}
+
+
+int32_t decodeImaEvents(const uint8_t* cborData,uint32_t cborDataLen, ImaEventSha256** events, size_t* size ) {
+    struct cbor_load_result result;
+    cbor_item_t* arrayImaEvents = cbor_load(cborData,cborDataLen, &result);
+    size_t allocatedSize = cbor_array_size(arrayImaEvents);
+    uint32_t res=0;
+    size_t imaEventAllocatedSize = sizeof(ImaEventSha256) * allocatedSize;
+    
+    (*size) = allocatedSize;
+    (*events) = (ImaEventSha256*)malloc(imaEventAllocatedSize);
+    // This needs to be after the alloc, since we get a new memory address after malloc
+    ImaEventSha256* eventsRef = (*events);
+    for (size_t i = 0; i < allocatedSize; i++){
+        cbor_item_t* arrayItem;
+        arrayItem=cbor_array_get(arrayImaEvents, i);
+        ImaEventSha256 ev =  decodeImaEvent(arrayItem);
+        eventsRef[i] = ev;
+    }
+
+    return 0;
+}
+
+
 cbor_item_t* encodeImaEvent(struct ImaEventSha256* event) {
-    cbor_item_t *array = cbor_new_definite_array(7);
+    cbor_item_t *array = cbor_new_definite_array(6);
     uint32_t result = 0;
     result = cbor_array_push(array, cbor_build_uint32(event->pcrIndex));
     result = cbor_array_push(array, cbor_build_uint32(event->templateDataLength));    
     result = cbor_array_push(array, cbor_build_uint32(event->templateNameLength));
-    result = cbor_array_push(array, cbor_build_bytestring(event->templateName,event->templateNameLength));
+    result = cbor_array_push(array, cbor_build_bytestring((uint8_t*)event->templateName,event->templateNameLength));
     result = cbor_array_push(array, cbor_build_bytestring(event->hashOfTemplate,SHA256_DIGEST_LENGTH));
     result = cbor_array_push(array, cbor_build_bytestring(event->templateData,event->templateDataLength));
-    //result = cbor_array_push(array, cbor_build_bytestring(event->parsedTemplateData,event->templateNameLength));    
+    ImaEventSha256 s = decodeImaEvent(array);
+    //displayDigest(s.templateData, 32 );
+    //printf("\n");
+
     return array;
 }
 
@@ -86,59 +138,3 @@ int32_t encodeImaEvents(struct ImaEventSha256* events, uint32_t len,uint8_t** se
     return 0;
 }
 
-ImaEventSha256 decodeImaEvent(cbor_item_t* item){
-    ImaEventSha256 event;
-    size_t allocatedSize = cbor_array_size(item);
-    if(allocatedSize < 7){
-        printf("elements missing\n");
-    }
-    cbor_item_t* pcr = cbor_array_get(item,0);
-    cbor_item_t* templateDataLength = cbor_array_get(item,1);
-    cbor_item_t* templateNameLength = cbor_array_get(item,2);
-    cbor_item_t* templateType = cbor_array_get(item,3);
-    
-    cbor_item_t* templateName = cbor_array_get(item,4);
-    cbor_item_t* hashOfTemplate = cbor_array_get(item,5);
-    cbor_item_t* templateData = cbor_array_get(item,6);
-
-    event.pcrIndex = cbor_get_uint32(pcr);
-    event.templateDataLength = cbor_get_uint32(templateDataLength);
-    event.templateNameLength = cbor_get_uint32(templateNameLength);
-    event.templateData = malloc(event.templateDataLength);    
-    memcpy(event.hashOfTemplate,hashOfTemplate->data,SHA256_DIGEST_LENGTH);
-
-  //  printf("%u %u %u %u\n",event.pcrIndex,event.templateDataLength,event.templateNameLength,event.templateType);
-
-    
-    
-
-
-
-    return event;
-}
-
-
-int32_t decodeImaEvents(const uint8_t* cborData,uint32_t cborDataLen, ImaEventSha256** events, size_t* size ) {
-    struct cbor_load_result result;
-    cbor_item_t* arrayImaEvents = cbor_load(cborData,cborDataLen, &result);
-    size_t allocatedSize = cbor_array_size(arrayImaEvents);
-    uint32_t res=0;
-    size_t imaEventAllocatedSize = sizeof(ImaEventSha256) * allocatedSize;
-    
-    (*size) = allocatedSize;
-    (*events) = (ImaEventSha256*)malloc(imaEventAllocatedSize);
-    // This needs to be after the alloc, since we get a new memory address after malloc
-    ImaEventSha256* eventsRef = (*events);
-    
-    printf("decodeImaEvents Count: %zu\n", allocatedSize);
-
-
-    for (size_t i = 0; i < allocatedSize; i++){
-        cbor_item_t* arrayItem;
-        arrayItem=cbor_array_get(arrayImaEvents, i);
-        ImaEventSha256 ev =  decodeImaEvent(arrayItem);
-        eventsRef[i] = ev;
-    }
-
-    return 0;
-}

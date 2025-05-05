@@ -15,19 +15,23 @@
 #include "../../common/ima_log_lib/inc/types.h"
 
 extern void displayDigest(uint8_t *pcr, int32_t n);
+extern int32_t  writeEventLog (const char* path, ImaEventSha256* events, uint32_t length);
+extern bool verifyQuoteSignature(TPM2B_PUBLIC pub_key, TPM2B_ATTEST quote, TPMT_SIGNATURE signature);
 
 int main() {
     httplib::Server svr;
     const uint8_t zeroed[EVP_MAX_MD_SIZE] = {0};
+    
     uint8_t pcrs[30][EVP_MAX_MD_SIZE];
     uint32_t f = 0;
+
     for(int i = 0; i< 30; i++){
         memmove(pcrs[i],zeroed,EVP_MAX_MD_SIZE);
     }
 
 
     svr.Post("/ima", [&](const httplib::Request & req, httplib::Response &res) {
-        displayDigest(pcrs[10],SHA256_DIGEST_LENGTH);
+       
         auto content = req.body;        
         if(content.empty()){
             std::cout << "got no events ?" << std::endl;
@@ -39,8 +43,9 @@ int main() {
         int32_t t = decodeImaEvents( (uint8_t*)content.data(), content.size(),&events,&size);
         calculateQuote(events,size,pcrs, CRYPTO_AGILE_SHA256);
         displayDigest(pcrs[10],SHA256_DIGEST_LENGTH);
-
+        writeEventLog("test1",events,size);
         std::string sessionId = req.get_header_value("Session-ID");
+        free(events);
         res.set_content("", "application/cbor");
     });
 
@@ -73,13 +78,12 @@ int main() {
             std::cout << "missing keys" << std::endl;
             return;
         }
-
-        std::cout<< "/quote: " << content.size() << std::endl;
+        //auto sigMatch = verifyQuoteSignature(NULL,NULL,NULL);
+        
 
 
 
         std::string sessionId = req.get_header_value("Session-ID");
-
         res.set_content("", "application/cbor");
     });
     
