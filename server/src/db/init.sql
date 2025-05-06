@@ -1,14 +1,19 @@
 
 
-CREATE TABLE DeviceIds(id SERIAL PRIMARY KEY, device_id char(64));
+CREATE TABLE DeviceIds(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id char(64)
+);
 
 CREATE TABLE RemoteAttestationSession(
-    id SERIAL PRIMARY KEY, device_id,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id NOT NULL,
     session_id char(64), 
-    path_to_log varchar(512),
+    path_to_log_directory varchar(512),
     quote BINARY,
     public_key BINARY,
-    last_quote_index INTEGER
+    last_quote_index INTEGER,
+    FOREIGN KEY (device_id) REFERENCES DeviceIds (id)
 );
 
 
