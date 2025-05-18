@@ -16,26 +16,117 @@
 #include "../common/ima_log_lib/inc/ima_verify.h"
 #include "ima_log_lib/inc/types.h"
 #include "libcbor/src/cbor/arrays.h"
-
-
 extern void displayDigest(uint8_t *pcr, int32_t n);
-int32_t encodeAttestationCbor( TPM2B_ATTEST attest, uint8_t** serializedOut,size_t* lengthOut) {
-    cbor_item_t* item = cbor_build_bytestring(attest.attestationData,attest.size);
-    cbor_serialize_alloc(item,serializedOut,lengthOut);
-    cbor_decref(&item);
-    return 0;
+
+
+int32_t encodeAttestationCbor(
+    TPM2B_ATTEST attest,
+    TPMT_SIGNATURE signature,
+    uint8_t** serializedOut,
+    size_t* lengthOut
+) {
+    int32_t ret = 0;
+    TSS2_RC rc;
+    uint8_t sigBuf[512]; // Enough for typical RSA/ECC signatures
+    size_t offset = 0;
+    rc = Tss2_MU_TPMT_SIGNATURE_Marshal(&signature, sigBuf, sizeof(sigBuf), &offset);
+    if (rc != TSS2_RC_SUCCESS) {
+        fprintf(stderr, "Failed to marshal TPMT_SIGNATURE: 0x%X\n", rc);
+        return -1;
+    }
+    cbor_item_t* root = cbor_new_definite_map(2);
+    _Bool b = cbor_map_add(root, (struct cbor_pair) {
+        .key = cbor_move(cbor_build_string("attest")),
+        .value = cbor_move(cbor_build_bytestring(attest.attestationData, attest.size))
+    });
+    b = cbor_map_add(root, (struct cbor_pair) {
+        .key = cbor_move(cbor_build_string("signature")),
+        .value = cbor_move(cbor_build_bytestring(sigBuf, offset))
+    });
+    if (!cbor_serialize_alloc(root, serializedOut, lengthOut)) {
+        fprintf(stderr, "CBOR serialization failed\n");
+        ret = -2;
+    }
+    cbor_decref(&root);
+    return ret;
 }
 
-// returns the marshaled version of the attestation
-int32_t decodeAttestationCbor(const uint8_t* cborData,uint32_t cborDataLen, TPM2B_ATTEST* attestOut) {
+int32_t decodeAttestationCbor(
+    const uint8_t* cborData,
+    uint32_t cborDataLen,
+    TPM2B_ATTEST* attestOut,
+    TPMT_SIGNATURE* signatureOut
+) {
     struct cbor_load_result result;
-    cbor_item_t* t = cbor_load(cborData,cborDataLen, &result);
-    memcpy(attestOut->attestationData,t->data,t->metadata.bytestring_metadata.length);
-    attestOut->size = t->metadata.bytestring_metadata.length;
-    cbor_decref(&t);
+    cbor_item_t* root = cbor_load(cborData, cborDataLen, &result);
+    if (!root || !cbor_isa_map(root)) {
+        fprintf(stderr, "Invalid CBOR format (expected map)\n");
+        return -1;
+    }
+
+    cbor_item_t *attestItem = NULL, *sigItem = NULL;
+
+    // Loop through CBOR map to find "attest" and "signature"
+    for (size_t i = 0; i < cbor_map_size(root); i++) {
+        struct cbor_pair pair = cbor_map_handle(root)[i];
+
+        if (cbor_isa_string(pair.key)) {
+            char* keyStr = (char*)cbor_string_handle(pair.key);
+            size_t keyLen = cbor_string_length(pair.key);
+
+            if (keyLen == 6 && strncmp(keyStr, "attest", 6) == 0) {
+                if (!cbor_isa_bytestring(pair.value)) {
+                    fprintf(stderr, "'attest' is not a bytestring\n");
+                    cbor_decref(&root);
+                    return -2;
+                }
+                attestItem = pair.value;
+            } else if (keyLen == 9 && strncmp(keyStr, "signature", 9) == 0) {
+                if (!cbor_isa_bytestring(pair.value)) {
+                    fprintf(stderr, "'signature' is not a bytestring\n");
+                    cbor_decref(&root);
+                    return -3;
+                }
+                sigItem = pair.value;
+            }
+        }
+    }
+
+    if (!attestItem || !sigItem) {
+        fprintf(stderr, "Missing 'attest' or 'signature' field in CBOR map\n");
+        cbor_decref(&root);
+        return -4;
+    }
+
+    // Extract attestation data
+    size_t attestLen = cbor_bytestring_length(attestItem);
+    if (attestLen > sizeof(attestOut->attestationData)) {
+        fprintf(stderr, "Attestation data too large\n");
+        cbor_decref(&root);
+        return -5;
+    }
+
+    memcpy(attestOut->attestationData, cbor_bytestring_handle(attestItem), attestLen);
+    attestOut->size = attestLen;
+
+    // Unmarshal signature
+    size_t offset = 0;
+    TSS2_RC rc = Tss2_MU_TPMT_SIGNATURE_Unmarshal(
+        cbor_bytestring_handle(sigItem),
+        cbor_bytestring_length(sigItem),
+        &offset,
+        signatureOut
+    );
+
+    if (rc != TSS2_RC_SUCCESS) {
+        fprintf(stderr, "Failed to unmarshal TPMT_SIGNATURE: 0x%X\n", rc);
+        cbor_decref(&root);
+        return -6;
+    }
+
+    cbor_decref(&root);
     return 0;
 }
-
 int32_t encodePublicKey(TPM2B_PUBLIC* publicKey,uint8_t** serializedOut,size_t* lengthOut) {
     uint8_t buf[1024];
     size_t offset = 0;
@@ -51,14 +142,28 @@ int32_t encodePublicKey(TPM2B_PUBLIC* publicKey,uint8_t** serializedOut,size_t* 
     return rc;   
 }
 
-int32_t decodePublicKey(const uint8_t* cborData,uint32_t cborDataLen, TPM2B_PUBLIC* publicKeyOut){
+int32_t decodePublicKey(const uint8_t* cborData, uint32_t cborDataLen, TPM2B_PUBLIC* publicKeyOut) {
     struct cbor_load_result result;
-    cbor_item_t* t = cbor_load(cborData,cborDataLen, &result);
-    size_t offset=0;
-    TSS2_RC rc = Tss2_MU_TPM2B_PUBLIC_Unmarshal(t->data, t->metadata.bytestring_metadata.length,&offset,publicKeyOut);
+    cbor_item_t* t = cbor_load(cborData, cborDataLen, &result);
+    if (!t || !cbor_isa_bytestring(t)) {
+        fprintf(stderr, "Expected top-level CBOR bytestring for TPM2B_PUBLIC\n");
+        if (t) cbor_decref(&t);
+        return -1;
+    }
+
+    const uint8_t* buf = cbor_bytestring_handle(t);
+    size_t bufLen = cbor_bytestring_length(t);
+    size_t offset = 0;
+
+    TSS2_RC rc = Tss2_MU_TPM2B_PUBLIC_Unmarshal(buf, bufLen, &offset, publicKeyOut);
+    if (rc != TSS2_RC_SUCCESS) {
+        fprintf(stderr, "Unmarshal failed: 0x%X\n", rc);
+    }
+
     cbor_decref(&t);
-    return 0;
+    return rc;
 }
+
 
 ImaEventSha256 decodeImaEvent(cbor_item_t* item){
     ImaEventSha256 event;

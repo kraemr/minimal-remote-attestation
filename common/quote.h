@@ -22,3 +22,10 @@ extern TSS2_RC create_quote(
     TPM2B_ATTEST **quote,
     TPMT_SIGNATURE **signature
 );
+
+
+extern TSS2_RC getSigningKey (  
+    ESYS_CONTEXT* ctx ,
+    ESYS_TR* attestationKeyHandle, 
+    TPM2B_PUBLIC **outAkPublic
+);

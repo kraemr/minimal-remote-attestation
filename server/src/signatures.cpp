@@ -16,11 +16,15 @@
 #include <openssl/ec.h>
 #include <openssl/obj_mac.h>
 #include <tss2/tss2_tpm2_types.h>
-
+#include <iostream>
 #define DEFAULT_RSA_EXPONENT 65537
 
 EVP_PKEY* convertTpm2bPublicToEvp(const TPM2B_PUBLIC *pub) {
-    if (pub->publicArea.type == TPM2_ALG_RSA) {
+    
+    
+    std::cout << pub->publicArea.type << " " << pub->publicArea.nameAlg << std::endl;
+
+    
         const TPM2B_PUBLIC_KEY_RSA *rsa = &pub->publicArea.unique.rsa;
         BIGNUM *n = BN_bin2bn(rsa->buffer, rsa->size, NULL);
         BIGNUM *e = BN_new(); BN_set_word(e, DEFAULT_RSA_EXPONENT);
@@ -30,7 +34,7 @@ EVP_PKEY* convertTpm2bPublicToEvp(const TPM2B_PUBLIC *pub) {
         EVP_PKEY_assign_RSA(pkey, rsa_key);
         return pkey;
 
-    } else if (pub->publicArea.type == TPM2_ALG_ECC) {
+      if (pub->publicArea.type == TPM2_ALG_ECC) {
         const TPM2B_ECC_PARAMETER *x = &pub->publicArea.unique.ecc.x;
         const TPM2B_ECC_PARAMETER *y = &pub->publicArea.unique.ecc.y;
 
@@ -59,14 +63,11 @@ int verifyQuote(EVP_PKEY *pkey, const uint8_t *quote_data, size_t quote_size,con
 
 bool verifyQuoteSignature(TPM2B_PUBLIC pub_key, TPM2B_ATTEST quote, TPMT_SIGNATURE signature) {
     EVP_PKEY *pkey = convertTpm2bPublicToEvp(&pub_key);
-
-    
     int verified = verifyQuote(
         pkey,
         quote.attestationData, quote.size,
         signature.signature.rsassa.sig.buffer, signature.signature.rsassa.sig.size
     );
-    
-
-    return false;
+    bool ret = verified == 1 ? true : false;
+    return ret;
 }

@@ -1,14 +1,12 @@
-
-
 CREATE TABLE DeviceIds(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id char(64)
+    device_id varchar(64)
 );
 
 CREATE TABLE RemoteAttestationSession(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id NOT NULL,
-    session_id char(64), 
+    session_id varchar(64), 
     path_to_log_directory varchar(512),
     quote BINARY,
     public_key BINARY,

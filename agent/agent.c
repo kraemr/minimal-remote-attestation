@@ -14,23 +14,9 @@
 #include <tss2/tss2_esys.h>
 #include <tss2/tss2_tpm2_types.h>
 #include <unistd.h>
-
 #define BUFFERSIZE 500
-
 extern TSS2_RC readDevId(ESYS_CONTEXT* esys_ctx,uint8_t buf[64]);
 extern TSS2_RC writeDevId(ESYS_CONTEXT* esys_ctx,const uint8_t* data, uint32_t size);
-
-
-// get dev id from server should obviously happen over a secure channel, as this
-// is a secret
-void getDevIdFromServer() {}
-
-// persist devid to identify the device uniquely
-void persistDevId(uint8_t* buffer, uint32_t length) {
-
-}
-
-// never gets persisted in tpm
 void getSessionIdServer() {}
 extern void displayDigest(uint8_t* pcr, uint32_t len);
 char response[4096]={0};
@@ -55,8 +41,8 @@ int32_t sendQuote(ESYS_CONTEXT *ectx, ESYS_TR akHandle) {
                                  0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
                                  0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13}};
 
-  TSS2_RC rc =
-      create_quote(ectx, akHandle, &pcrSelection, &nonce, &attest, &sig);
+  TSS2_RC rc = create_quote(ectx, akHandle, &pcrSelection, &nonce, &attest, &sig);
+  
   if (rc != TSS2_RC_SUCCESS) {
     return -1;
   }
@@ -64,7 +50,7 @@ int32_t sendQuote(ESYS_CONTEXT *ectx, ESYS_TR akHandle) {
   uint8_t* buf = NULL;
   size_t len = 0;
   
-  encodeAttestationCbor(*attest,&buf,&len);
+  encodeAttestationCbor(*attest,*sig,&buf,&len);
   sendPostCbor(url, buf, len, response);
   
   free(buf);
@@ -74,8 +60,10 @@ int32_t sendQuote(ESYS_CONTEXT *ectx, ESYS_TR akHandle) {
   return 0;
 }
 
-
-
+// called after /enroll is request on this agent
+void createKeys() {
+  //TSS2_RC rc = createAttestationKey(ectx, &attestationKeyHandle, &publicKey,&privateKey);
+}
 
 int32_t main(int32_t argc, char *argv[]) {
   const char *url = "http://127.0.0.1:8084/enroll";
@@ -89,20 +77,16 @@ int32_t main(int32_t argc, char *argv[]) {
   ESYS_CONTEXT *ectx;
   ESYS_TR attestationKeyHandle;
   TPM2B_PUBLIC *publicKey;
-  TPM2B_PRIVATE *privateKey;
   uint8_t* serializedCborPubKey = NULL;
   size_t len = 0;
   const char *imaPath = argv[1];
   uint16_t hashType = 0;
   int fd = -1;
 
-  
-
   if (argc < 3) {
     printf("Missing Args usage: ./agent pathToIMALogSha256 sha256\n");
     return 1;
   }
-
   fd = open(imaPath, O_RDONLY);
   if (fd == -1) {
     printf("failed to open IMA Event Log at: %s.\n \
@@ -112,8 +96,8 @@ int32_t main(int32_t argc, char *argv[]) {
   }
   
   Esys_Initialize(&ectx, NULL, NULL);
-  TSS2_RC rc = createAttestationKey(ectx, &attestationKeyHandle, &publicKey,&privateKey);
-  initCurl();
+  TSS2_RC rc = getSigningKey(ectx,&attestationKeyHandle,&publicKey);
+  initCurl();  
   encodePublicKey(publicKey,&serializedCborPubKey,&len);
   sendPostCbor(url, serializedCborPubKey, len, response);
 
@@ -127,9 +111,7 @@ int32_t main(int32_t argc, char *argv[]) {
       goto sleep;
     }
     accCount += currentCount;    
-    
     int32_t res = encodeImaEvents(sha256,currentCount, &serialOut,&size);
-    
     sendPostCbor(imaUrl, serialOut, size, response);
     if(accCount > 1000 ){
       sendQuote(ectx, attestationKeyHandle);
@@ -140,6 +122,5 @@ int32_t main(int32_t argc, char *argv[]) {
  
   Esys_Free(ectx);
   Esys_Free(publicKey);
-  Esys_Free(privateKey);
   return 0;
 }
