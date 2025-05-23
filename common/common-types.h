@@ -10,11 +10,10 @@
 typedef struct ServerSession {
     char deviceId[DEV_ID_LENGTH];
     char sessionId[SESSION_ID_MAX_LENGTH];
-
     uint8_t* pubKey;
     uint32_t pubKeyLength;
     
-    uint8_t* lastValidAttestation; // Is NULL if there never was one
+    uint8_t lastValidAttestation[EVP_MAX_MD_SIZE]; // Is NULL if there never was one
     uint32_t attestLength;
 
     uint64_t lastValidAttestationTimestamp;

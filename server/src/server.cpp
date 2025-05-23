@@ -23,6 +23,7 @@
 #include "../inc/sessions.hpp"
 #include "../../common/ima_log_lib/inc/ima_verify.h"
 #include "../../common/ima_log_lib/inc/types.h"
+
 #include "../../common/common-types.h"
 #include <sqlite3.h>
 
@@ -106,16 +107,12 @@ int loadServerSession(sqlite3* db, const char* device_id, const char* session_id
         const void* quoteBlob = sqlite3_column_blob(stmt, 2);
         int quoteLen = sqlite3_column_bytes(stmt, 2);
         if (quoteLen > 0) {
-            session->lastValidAttestation = (uint8_t*)malloc(quoteLen);
             memcpy(session->lastValidAttestation, quoteBlob, quoteLen);
             session->attestLength = quoteLen;
-        } else {
-            session->lastValidAttestation = NULL;
+        } else {        
             session->attestLength = 0;
         }
-
         session->lastValidAtestationImaIndex = sqlite3_column_int64(stmt, 3);
-
         sqlite3_finalize(stmt);
         return 0;
     }
@@ -296,16 +293,64 @@ int32_t initNewSession(std::map<std::string,ServerSession*>& sessionMap,std::str
     ServerSession* session = new ServerSession;    
     memcpy(session->deviceId,deviceId.data(), deviceId.size());
     memcpy(session->sessionId,sessionId.data(), sessionId.size());
-    session->lastValidAtestationImaIndex = 0;
-    session->lastValidAttestation = NULL;
+    session->lastValidAtestationImaIndex = 0;        
     session->lastValidAttestationTimestamp = 0;
     session->pubKey = NULL;
+    
     memset(session->sessionHash, 0,64);
-    memcpy(session->sessionId,sessionId.data(),sessionId.length()+1);
-    std::cout << session->sessionId << " " << sessionId.length() << std::endl; 
+    memcpy(session->sessionId,sessionId.data(),sessionId.length()+1);    
     std::pair<char*,ServerSession*> p(session->sessionId,session);
+    
     sessionMap.insert(p);
     return 0;
+}
+
+/*
+Step 1: Check that we have the expected pcrSelection, for now its just 10
+Step 2: recalculate the quote
+*/
+int32_t verifyQuote(TPMS_ATTEST* attestation, ServerSession* session) {    
+    TPM2B_DIGEST digest = attestation->attested.quote.pcrDigest;
+    TPML_PCR_SELECTION pcrSelection = attestation->attested.quote.pcrSelect;
+    if (session->attestLength == 0) {    
+        // For Testing : 
+        const char * path = "test1";
+        int fd = 0;
+        fd = open(path,O_RDONLY);        
+        ImaEventSha256 buffer[100];        
+        uint8_t pcrs[30][EVP_MAX_MD_SIZE];
+        uint64_t count = 0;        
+        
+        std::cout << "verifyQuote attestation: ";
+        print_hex(attestation->attested.quote.pcrDigest.buffer, attestation->attested.quote.pcrDigest.size);
+        std::cout << std::endl;
+
+        do {        
+            count = readImaLog(fd,CRYPTO_AGILE_SHA256,buffer,100);
+            for (uint32_t i = 0; i < count ; i++) {
+                calculateQuote(&buffer[i],1,pcrs, CRYPTO_AGILE_SHA256);
+                if( memcmp( pcrs[10],attestation->attested.quote.pcrDigest.buffer,SHA256_DIGEST_LENGTH ) != 0 ) {
+                    //Fail
+                    
+                }
+                else {
+                    //Success
+                    std::cout << "verifyQuote: Success" << std::endl;
+                }
+            }
+            
+        }while( count );
+        std::cout << " verifyQuote: couldnt find any IMA Event at which the Hash Matches " << std::endl;
+        /*
+            getPathImaEventsFile
+            readImaEvents and calculateQuote
+
+        */
+    }
+    // Recalculate from the lastValidAttestationIndex and use the lastValidAttestation as a baseline
+    else{
+
+    }
 }
 
 int main() {
@@ -331,8 +376,8 @@ int main() {
         size_t size = 0;
         int32_t t = decodeImaEvents( (uint8_t*)content.data(), content.size(),&events,&size);
 
-        //calculateQuote(events,size,pcrs, CRYPTO_AGILE_SHA256);
-
+        calculateQuote(events,size,pcrs, CRYPTO_AGILE_SHA256);
+        print_hex(pcrs[10],SHA256_DIGEST_LENGTH);
         t = writeEventLog("test1",events,size);
         //std::string sessionId = req.get_header_value("Session-ID");
         free(events);
@@ -363,10 +408,7 @@ int main() {
         //}
         getSession(currentSessions,sessionId,&session);        
         if( session == nullptr){                                
-            std::cout << "session == nullptr" << std::endl;
-            
-            
-            
+            std::cout << "session == nullptr" << std::endl;                    
             sqlite3* db; 
             sqlite3_open("sesh.db",&db);              
             session = new ServerSession();      
@@ -391,10 +433,9 @@ int main() {
 
     // Get the quote 
     svr.Post("/quote", [&](const httplib::Request & req, httplib::Response &res) {
-        auto content = req.body;
+        auto content = req.body;        
         char sessionId[UUID_STR_LEN+1] = "7ebad9a7-57f5-4ce6-9785-e42cadf7373e\0";
         ServerSession* session = nullptr;
-
         if(content.empty()){
             std::cout << "missing keys" << std::endl;
             return;
@@ -405,22 +446,31 @@ int main() {
             return;            
         }
         TPM2B_PUBLIC keyInfo = {};
-        TPM2B_ATTEST attest = {};
+        TPM2B_ATTEST attest_blob = {};
         TPMT_SIGNATURE signature;
-        
+        TPMS_ATTEST attest;        
         size_t offset = 0;                                
-        int32_t result = decodeAttestationCbor((uint8_t*)req.body.data(),req.body.length(),&attest,&signature);        
-        int32_t rc = decodePublicKey((uint8_t*)session->pubKey, session->pubKeyLength, &keyInfo);        
+        int32_t result = decodeAttestationCbor((uint8_t*)req.body.data(),req.body.length(),&attest_blob,&signature);        
+        int32_t rc = decodePublicKey((uint8_t*)session->pubKey, session->pubKeyLength, &keyInfo);                
         
         if(rc != TSS2_RC_SUCCESS){
             std::cout << "Tss2_MU_TPM2B_PUBLIC_Unmarshal failed " << rc << std::endl;
-        }
-        auto b = verifyQuoteSignature(keyInfo,attest,signature);
-        if (!b) {
-            // log alert that quote sig mismatches
             return;
         }
-        
+       
+        bool b = verifyQuoteSignature(keyInfo,attest_blob,signature);
+        if (!b) {            
+            return;
+        }
+
+        rc = Tss2_MU_TPMS_ATTEST_Unmarshal(
+            attest_blob.attestationData,
+            attest_blob.size,
+            &offset,
+            &attest
+        );
+
+        verifyQuote(&attest,session);                
         res.set_content("", "text/plain");
     });
     

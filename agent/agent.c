@@ -29,12 +29,13 @@ int32_t sendQuote(ESYS_CONTEXT *ectx, ESYS_TR akHandle) {
 
   // For ima we select PCR 10
   TPML_PCR_SELECTION pcrSelection = {
-      .count = 1,
-      .pcrSelections = {{
-          .hash = TPM2_ALG_SHA256,
-          .sizeofSelect = 3,
-          .pcrSelect = {0x01, 0x00, 0x00} // PCR 0
-      }}};
+    .count = 1,
+    .pcrSelections = {{
+        .hash = TPM2_ALG_SHA256,
+        .sizeofSelect = 3,
+        .pcrSelect = {0x00, 0x04, 0x00} // PCR 10 = bit 2 in byte 1
+    }}
+  };
 
   TPM2B_DATA nonce = {.size = 20,
                       .buffer = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
