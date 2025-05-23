@@ -43,10 +43,7 @@ int32_t sendQuote(ESYS_CONTEXT *ectx, ESYS_TR akHandle) {
                                  0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13}};
 
   TSS2_RC rc = create_quote(ectx, akHandle, &pcrSelection, &nonce, &attest, &sig);
-  
-  FILE * fp = fopen("TEST_QUOTE","wb" );
-  fwrite(attest->attestationData,sizeof(TPM2B_ATTEST),1,fp);
-  fclose(fp);
+
     
   if (rc != TSS2_RC_SUCCESS) {
     return -1;

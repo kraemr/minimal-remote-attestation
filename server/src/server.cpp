@@ -324,12 +324,20 @@ int32_t verifyQuote(TPMS_ATTEST* attestation, ServerSession* session) {
         std::cout << "verifyQuote attestation: ";
         print_hex(attestation->attested.quote.pcrDigest.buffer, attestation->attested.quote.pcrDigest.size);
         std::cout << std::endl;
-
+        uint8_t temp[EVP_MAX_MD_SIZE];
         do {        
             count = readImaLog(fd,CRYPTO_AGILE_SHA256,buffer,100);
             for (uint32_t i = 0; i < count ; i++) {
                 calculateQuote(&buffer[i],1,pcrs, CRYPTO_AGILE_SHA256);
-                if( memcmp( pcrs[10],attestation->attested.quote.pcrDigest.buffer,SHA256_DIGEST_LENGTH ) != 0 ) {
+                EVP_MD_CTX* mdctx;
+                uint32_t out = 0;
+                
+                initEvpHashingCtx(&mdctx,CRYPTO_AGILE_SHA256);
+		        EVP_DigestUpdate(mdctx,pcrs[10] ,SHA256_DIGEST_LENGTH);	                
+                EVP_DigestFinal_ex(mdctx, temp, &out);
+                EVP_MD_CTX_free(mdctx);
+
+                if( memcmp( temp,attestation->attested.quote.pcrDigest.buffer,SHA256_DIGEST_LENGTH ) != 0 ) {
                     //Fail
                     
                 }
