@@ -329,11 +329,11 @@ int32_t verifyQuote(TPMS_ATTEST* attestation, ServerSession* session) {
             count = readImaLog(fd,CRYPTO_AGILE_SHA256,buffer,100);
             for (uint32_t i = 0; i < count ; i++) {
                 calculateQuote(&buffer[i],1,pcrs, CRYPTO_AGILE_SHA256);
-                EVP_MD_CTX* mdctx;
+                EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
                 uint32_t out = 0;
                 
-                initEvpHashingCtx(&mdctx,CRYPTO_AGILE_SHA256);
-		        EVP_DigestUpdate(mdctx,pcrs[10] ,SHA256_DIGEST_LENGTH);	                
+                EVP_DigestInit_ex((mdctx), EVP_sha256(), NULL);		        
+                EVP_DigestUpdate(mdctx,pcrs[10] ,SHA256_DIGEST_LENGTH);	                
                 EVP_DigestFinal_ex(mdctx, temp, &out);
                 EVP_MD_CTX_free(mdctx);
 
