@@ -78,6 +78,7 @@ int32_t main(int32_t argc, char *argv[]) {
   ESYS_CONTEXT *ectx;
   ESYS_TR attestationKeyHandle;
   TPM2B_PUBLIC *publicKey;
+  TPM2B_PRIVATE *private;
   uint8_t* serializedCborPubKey = NULL;
   size_t len = 0;
   const char *imaPath = argv[1];
@@ -97,7 +98,10 @@ int32_t main(int32_t argc, char *argv[]) {
   }
   
   Esys_Initialize(&ectx, NULL, NULL);
-  TSS2_RC rc = getSigningKey(ectx,&attestationKeyHandle,&publicKey);
+  //TSS2_RC rc = getSigningKey(ectx,&attestationKeyHandle,&publicKey);
+  TSS2_RC rc = createAttestationKey(ectx,&attestationKeyHandle,&publicKey,&private);
+
+
   initCurl();  
   encodePublicKey(publicKey,&serializedCborPubKey,&len);
   sendPostCbor(url, serializedCborPubKey, len, response);
