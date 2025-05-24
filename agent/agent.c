@@ -110,19 +110,26 @@ int32_t main(int32_t argc, char *argv[]) {
   for (;;) {
     sleep:
     sleep(1);
+   
+   
+    if(accCount > 1000 ){
+      sendQuote(ectx, attestationKeyHandle);
+      accCount = 0;
+    }
+    
     // TODO: make this completely hashalgo agnostic
     memset(sha256,0,sizeof(ImaEventSha256) * BUFFERSIZE );
     currentCount = readImaLog(fd,CRYPTO_AGILE_SHA256,sha256, BUFFERSIZE);
     if (currentCount == 0) {
       goto sleep;
     }
+    
+   
+    
     accCount += currentCount;    
     int32_t res = encodeImaEvents(sha256,currentCount, &serialOut,&size);
     sendPostCbor(imaUrl, serialOut, size, response);
-    if(accCount > 1000 ){
-      sendQuote(ectx, attestationKeyHandle);
-      accCount = 0;
-    }
+  
     free(serialOut);
   }
  
