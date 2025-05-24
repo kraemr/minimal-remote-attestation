@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <openssl/evp.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <tss2/tss2_tpm2_types.h>
 #include <uuid/uuid.h>
@@ -19,5 +20,7 @@ typedef struct ServerSession {
     uint64_t lastValidAttestationTimestamp;
     uint64_t lastValidAtestationImaIndex; //This specifies the point at which the last Attestation was valid
     uint8_t sessionHash[EVP_MAX_MD_SIZE];
+    uint8_t pcrs[30][EVP_MAX_MD_SIZE];
+    
 } ServerSession;
 
