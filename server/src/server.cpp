@@ -44,8 +44,7 @@ void sendSuccessResponse() {
 
 void print_hex(const uint8_t* data, uint32_t length) {
     for (uint32_t i = 0; i < length; ++i) {
-        printf("%02X", data[i]);
-        if (i < length - 1) printf(":");
+        printf("%x", data[i]);
     }
 }
 
@@ -384,9 +383,12 @@ int main() {
         size_t size = 0;
         int32_t t = decodeImaEvents( (uint8_t*)content.data(), content.size(),&events,&size);
 
-        calculateQuote(events,size,pcrs, CRYPTO_AGILE_SHA256);
-        print_hex(pcrs[10],SHA256_DIGEST_LENGTH);
-        t = writeEventLog("test1",events,size);
+        //calculateQuote(events,size,pcrs, CRYPTO_AGILE_SHA256);
+        for (int i = 0; i < size; i++) {
+            verifyQuoteStep(&events[i],pcrs,pcrs[0]);
+        }
+        //print_hex(pcrs[10],SHA256_DIGEST_LENGTH);
+     //   t = writeEventLog("test1",events,size);
         //std::string sessionId = req.get_header_value("Session-ID");
         free(events);
         res.set_content("", "application/cbor");
@@ -477,8 +479,11 @@ int main() {
             &offset,
             &attest
         );
+        std::cout << "QUOTE_DIGEST: ";
+        print_hex(attest.attested.quote.pcrDigest.buffer,attest.attested.quote.pcrDigest.size);
+        std::cout << std::endl;
 
-        verifyQuote(&attest,session);                
+//        verifyQuote(&attest,session);                
         res.set_content("", "text/plain");
     });
     
