@@ -373,10 +373,12 @@ int main() {
     svr.Post("/ima", [&](const httplib::Request & req, httplib::Response &res) {       
         auto content = req.body;        
         char sessionId[UUID_STR_LEN+1] = "7ebad9a7-57f5-4ce6-9785-e42cadf7373e\0";
+        ServerSession* session = nullptr;         
         if(content.empty()){
             std::cout << "got no events ?" << std::endl;
             return;
         }
+        getSession(currentSessions,sessionId,&session);
 
         // Probably would be better to keep a static buffer, that is same size as client, so no memory allocs are actually needed
         ImaEventSha256* events = NULL;
@@ -385,7 +387,10 @@ int main() {
 
         //calculateQuote(events,size,pcrs, CRYPTO_AGILE_SHA256);
         for (int i = 0; i < size; i++) {
-            verifyQuoteStep(&events[i],pcrs,pcrs[0]);
+            int32_t res = verifyQuoteStep(&events[i],pcrs,session->lastValidAttestation);
+            if(res) {
+                std::cout << "QUOTE DIGEST MATCHES " << std::endl;
+            }
         }
         //print_hex(pcrs[10],SHA256_DIGEST_LENGTH);
      //   t = writeEventLog("test1",events,size);
@@ -482,8 +487,8 @@ int main() {
         std::cout << "QUOTE_DIGEST: ";
         print_hex(attest.attested.quote.pcrDigest.buffer,attest.attested.quote.pcrDigest.size);
         std::cout << std::endl;
-
-//        verifyQuote(&attest,session);                
+        session->attestLength = attest.attested.quote.pcrDigest.size;
+        memcpy( session->lastValidAttestation,attest.attested.quote.pcrDigest.buffer, attest.attested.quote.pcrDigest.size );
         res.set_content("", "text/plain");
     });
     
