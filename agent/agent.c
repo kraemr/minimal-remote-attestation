@@ -1,5 +1,5 @@
-#include "../../ima_verify/inc/ima_template_parser.h"
-#include "../../ima_verify/inc/ima_verify.h"
+#include "../common/ima_log_lib/inc/ima_template_parser.h"
+#include "../common/ima_log_lib/inc/ima_verify.h"
 #include "../common/libcbor/src/cbor.h"
 #include "../common/quote.h"
 #include "../common/request.h"
@@ -14,17 +14,9 @@
 #include <tss2/tss2_esys.h>
 #include <tss2/tss2_tpm2_types.h>
 #include <unistd.h>
-
-#define BUFFERSIZE 100
-
-// get dev id from server should obviously happen over a secure channel, as this
-// is a secret
-void getDevIdFromServer() {}
-
-// persist devid to identify the device uniquely
-void persistDevId() {}
-
-// never gets persisted in tpm
+#define BUFFERSIZE 500
+extern TSS2_RC readDevId(ESYS_CONTEXT* esys_ctx,uint8_t buf[64]);
+extern TSS2_RC writeDevId(ESYS_CONTEXT* esys_ctx,const uint8_t* data, uint32_t size);
 void getSessionIdServer() {}
 extern void displayDigest(uint8_t* pcr, uint32_t len);
 char response[4096]={0};
@@ -37,20 +29,22 @@ int32_t sendQuote(ESYS_CONTEXT *ectx, ESYS_TR akHandle) {
 
   // For ima we select PCR 10
   TPML_PCR_SELECTION pcrSelection = {
-      .count = 1,
-      .pcrSelections = {{
-          .hash = TPM2_ALG_SHA256,
-          .sizeofSelect = 3,
-          .pcrSelect = {0x01, 0x00, 0x00} // PCR 0
-      }}};
+    .count = 1,
+    .pcrSelections = {{
+        .hash = TPM2_ALG_SHA256,
+        .sizeofSelect = 3,
+        .pcrSelect = {0x00, 0x04, 0x00} // PCR 10 = bit 2 in byte 1
+    }}
+  };
 
   TPM2B_DATA nonce = {.size = 20,
                       .buffer = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
                                  0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
                                  0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13}};
 
-  TSS2_RC rc =
-      create_quote(ectx, akHandle, &pcrSelection, &nonce, &attest, &sig);
+  TSS2_RC rc = create_quote(ectx, akHandle, &pcrSelection, &nonce, &attest, &sig);
+
+    
   if (rc != TSS2_RC_SUCCESS) {
     return -1;
   }
@@ -58,7 +52,7 @@ int32_t sendQuote(ESYS_CONTEXT *ectx, ESYS_TR akHandle) {
   uint8_t* buf = NULL;
   size_t len = 0;
   
-  encodeAttestationCbor(*attest,&buf,&len);
+  encodeAttestationCbor(*attest,*sig,&buf,&len);
   sendPostCbor(url, buf, len, response);
   
   free(buf);
@@ -68,8 +62,10 @@ int32_t sendQuote(ESYS_CONTEXT *ectx, ESYS_TR akHandle) {
   return 0;
 }
 
-
-
+// called after /enroll is request on this agent
+void createKeys() {
+  //TSS2_RC rc = createAttestationKey(ectx, &attestationKeyHandle, &publicKey,&privateKey);
+}
 
 int32_t main(int32_t argc, char *argv[]) {
   const char *url = "http://127.0.0.1:8084/enroll";
@@ -83,7 +79,7 @@ int32_t main(int32_t argc, char *argv[]) {
   ESYS_CONTEXT *ectx;
   ESYS_TR attestationKeyHandle;
   TPM2B_PUBLIC *publicKey;
-  TPM2B_PRIVATE *privateKey;
+  TPM2B_PRIVATE *private;
   uint8_t* serializedCborPubKey = NULL;
   size_t len = 0;
   const char *imaPath = argv[1];
@@ -94,7 +90,6 @@ int32_t main(int32_t argc, char *argv[]) {
     printf("Missing Args usage: ./agent pathToIMALogSha256 sha256\n");
     return 1;
   }
-
   fd = open(imaPath, O_RDONLY);
   if (fd == -1) {
     printf("failed to open IMA Event Log at: %s.\n \
@@ -104,35 +99,41 @@ int32_t main(int32_t argc, char *argv[]) {
   }
   
   Esys_Initialize(&ectx, NULL, NULL);
-  TSS2_RC rc = createAttestationKey(ectx, &attestationKeyHandle, &publicKey,&privateKey);
-  initCurl();
+  //TSS2_RC rc = getSigningKey(ectx,&attestationKeyHandle,&publicKey);
+  TSS2_RC rc = createAttestationKey(ectx,&attestationKeyHandle,&publicKey,&private);
+
+
+  initCurl();  
   encodePublicKey(publicKey,&serializedCborPubKey,&len);
   sendPostCbor(url, serializedCborPubKey, len, response);
 
   for (;;) {
     sleep:
     sleep(1);
-    // TODO: make this completely hashalgo agnostic
-    memset(sha256,0,sizeof(ImaEventSha256) * BUFFERSIZE );
-    currentCount = readIMALogSha256(fd, sha256, BUFFERSIZE, CRYPTO_AGILE_SHA256);
-
-    if (currentCount == 0) {
-      goto sleep;
-    }
-    accCount += currentCount;    
-    
-    int32_t res = encodeImaEvents(sha256,currentCount, &serialOut,&size);
-    
-    sendPostCbor(imaUrl, serialOut, size, response);
+   
+   
     if(accCount > 1000 ){
       sendQuote(ectx, attestationKeyHandle);
       accCount = 0;
     }
+    
+    // TODO: make this completely hashalgo agnostic
+    memset(sha256,0,sizeof(ImaEventSha256) * BUFFERSIZE );
+    currentCount = readImaLog(fd,CRYPTO_AGILE_SHA256,sha256, BUFFERSIZE);
+    if (currentCount == 0) {
+      goto sleep;
+    }
+    
+   
+    
+    accCount += currentCount;    
+    int32_t res = encodeImaEvents(sha256,currentCount, &serialOut,&size);
+    sendPostCbor(imaUrl, serialOut, size, response);
+  
     free(serialOut);
   }
  
   Esys_Free(ectx);
   Esys_Free(publicKey);
-  Esys_Free(privateKey);
   return 0;
 }
