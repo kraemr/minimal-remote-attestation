@@ -16,3 +16,6 @@
 [submodule "common/ima_log_lib"]
 	path = common/ima_log_lib
 	url = git@github.com:kraemr/ima_log_lib.git
+[submodule "common/software-bom"]
+	path = common/software-bom
+	url = git@github.com:kraemr/software-bom-generator.git

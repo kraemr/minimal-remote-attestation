@@ -10,16 +10,35 @@
 #include <openssl/sha.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
+#include <tss2/tss2_common.h>
 #include <tss2/tss2_esys.h>
 #include <tss2/tss2_tpm2_types.h>
 #include <unistd.h>
+
 #define BUFFERSIZE 500
+#define EK_CERT_NV_INDEX 0x01C00002  // RSA EK cert NV index
+
 extern TSS2_RC readDevId(ESYS_CONTEXT* esys_ctx,uint8_t buf[64]);
 extern TSS2_RC writeDevId(ESYS_CONTEXT* esys_ctx,const uint8_t* data, uint32_t size);
 void getSessionIdServer() {}
 extern void displayDigest(uint8_t* pcr, uint32_t len);
 char response[4096]={0};
+
+
+int32_t getEKCertificate(uint8_t certificate[4096] , size_t* bytesRead) {
+  system("tpm2_nvread 0x01c00002 > /tmp/ek_rsa.der");
+  system("openssl x509 -inform DER -in /tmp/ek_rsa.der -out /tmp/ek_rsa.pem");
+  int fd = open("/tmp/ek_rsa.pem",O_RDONLY);
+  if(fd == -1){
+    printf("couldnt opne ek_rsa.pem\n");
+  }  
+  (*bytesRead) = read(fd,certificate,4096);
+  printf("%s",certificate);
+  close(fd);
+  return 0;
+}
 
 int32_t sendQuote(ESYS_CONTEXT *ectx, ESYS_TR akHandle) {
   const char *url = "http://127.0.0.1:8084/quote";
@@ -70,48 +89,53 @@ void createKeys() {
 int32_t main(int32_t argc, char *argv[]) {
   const char *url = "http://127.0.0.1:8084/enroll";
   const char *imaUrl = "http://127.0.0.1:8084/ima";
-  uint32_t currentCount = 0;
+  const char *quoteUrl = "";
+
   uint64_t accCount = 0;
+  uint32_t currentCount = 0;  
   uint32_t offset = 0;
+
   ImaEventSha256 sha256[BUFFERSIZE]={0};  
   uint8_t* serialOut = NULL;
   size_t size = 0;
+
   ESYS_CONTEXT *ectx;
   ESYS_TR attestationKeyHandle;
   TPM2B_PUBLIC *publicKey;
   TPM2B_PRIVATE *private;
+
   uint8_t* serializedCborPubKey = NULL;
   size_t len = 0;
-  const char *imaPath = argv[1];
+  size_t ekCertLen=0;
   uint16_t hashType = 0;
   int fd = -1;
-
   if (argc < 3) {
     printf("Missing Args usage: ./agent pathToIMALogSha256 sha256\n");
     return 1;
   }
+  const char *imaPath = argv[1];
   fd = open(imaPath, O_RDONLY);
   if (fd == -1) {
     printf("failed to open IMA Event Log at: %s.\n \
         Please check that your user has correct permissions and that the file exists\n",
            imaPath);
     return 1;
-  }
-  
+  }  
   Esys_Initialize(&ectx, NULL, NULL);
+  uint8_t buf[4096];
+  getEKCertificate(buf,&ekCertLen);
   //TSS2_RC rc = getSigningKey(ectx,&attestationKeyHandle,&publicKey);
+  printf("getEKCertificate len: %d\n", ekCertLen);
   TSS2_RC rc = createAttestationKey(ectx,&attestationKeyHandle,&publicKey,&private);
-
+  encodePublicKey(publicKey,buf,ekCertLen,&serializedCborPubKey,&len);
 
   initCurl();  
-  encodePublicKey(publicKey,&serializedCborPubKey,&len);
   sendPostCbor(url, serializedCborPubKey, len, response);
 
   for (;;) {
     sleep:
     sleep(1);
-   
-   
+      
     if(accCount > 1000 ){
       sendQuote(ectx, attestationKeyHandle);
       accCount = 0;
@@ -123,13 +147,11 @@ int32_t main(int32_t argc, char *argv[]) {
     if (currentCount == 0) {
       goto sleep;
     }
-    
-   
-    
+     
     accCount += currentCount;    
     int32_t res = encodeImaEvents(sha256,currentCount, &serialOut,&size);
-    sendPostCbor(imaUrl, serialOut, size, response);
-  
+    printf("sending events %d\n", currentCount);
+    sendPostCbor(imaUrl, serialOut, size, response);  
     free(serialOut);
   }
  

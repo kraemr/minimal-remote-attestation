@@ -21,9 +21,11 @@
 #include "../../common/ima_log_lib/inc/ima_verify.h"
 #include "../../common/ima_log_lib/inc/types.h"
 #include <stdio.h>
+
 extern void displayDigest(uint8_t *pcr, int32_t n);
 extern int32_t  writeEventLog (const char* path, ImaEventSha256* events, uint32_t length);
 extern bool verifyQuoteSignature(TPM2B_PUBLIC pub_key, TPM2B_ATTEST quote, TPMT_SIGNATURE signature);
+extern int32_t verifyEkCertificate(const char *root_bundle_path, uint8_t* ekCertificate, size_t ekCertLen );
 
 void sendErrResponse() {
 }
@@ -77,6 +79,8 @@ void handleIma(std::map<std::string, ServerSession*>& sessionMap,const httplib::
     std::string sessionId = handleSessionHeaders(req, res);
     getSession(sessionMap,sessionId.data(),&session);        
     int32_t ret = decodeImaEvents( (uint8_t*)req.body.data(), req.body.size(),&events,&size);    
+    std::cout << "session == nullptr: " << (session == nullptr) << " handleIma size: " << size << std::endl;
+    
     for (int i = 0; i < size; i++) {        
         if(verifyQuoteStep(&events[i],session->pcrs,session->lastValidAttestation)) std::cout << "QUOTE DIGEST MATCHES " << std::endl;    
     }            
@@ -87,15 +91,13 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
         int32_t r = 0;
         std::string sessionId = handleSessionHeaders(req,res);
         uint32_t outLen = 0;
+        uint8_t* data = nullptr;
         ServerSession* session = nullptr;         
-
         if(req.body.empty()){
             std::cout << "missing public key" << std::endl;
             return;
         }                
-        // Has to be Heap Allocated sadly
-        char* deviceId = (char*)malloc(SHA256_DIGEST_LENGTH * 3);
-
+        const char* deviceId = "DEADBEEF";
         //sha256_base64((uint8_t*)req.body.data(),req.body.length(),deviceId,SHA256_DIGEST_LENGTH * 3);
         //uuid(sessionId.data());
         //std::cout << deviceId << " session_id: " << sessionId  << std::endl;        
@@ -105,6 +107,27 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
         //catch(std::exception e){
            // std::cout << "enroll initNewSession: " << e.what() << std::endl;
         //}
+        TPM2B_PUBLIC pubKey;
+        uint8_t* ekCert = nullptr;
+        size_t ekCertLen = 0;
+
+        std::cout<< "handleEnroll request len: " << req.body.length() << std::endl;
+        r = decodePublicKey((uint8_t*)req.body.data(),req.body.length(),&pubKey,&ekCert,&ekCertLen);
+        
+        std::cout << "pubKey: " << pubKey.size << std::endl;
+
+        if (r != 0){
+            // decodePubKey failed
+            //return;
+            std::cout << "handleEnroll decodePublicKey failed " <<  std::endl;
+        }
+        r = verifyEkCertificate("../root-certs/root_bundle.pem",ekCert,ekCertLen );
+        if(!r) {
+            // EKCert is not to be trusted
+            //return;
+            std::cout << "handleEnroll verifyEkCert failed" << std::endl;
+        }
+
         getSession(sessionMap,sessionId.data(),&session);        
         if( session == nullptr){                                            
             Database* db = new Database("sesh.db");            
@@ -133,7 +156,7 @@ void handleQuote(std::map<std::string, ServerSession*>& sessionMap,const httplib
         }
         std::string sessionId = handleSessionHeaders(req, res);
         getSession(sessionMap,sessionId.data(),&session);
-        if(session == nullptr ){
+        if(session == nullptr ){ 
             sendErrResponse();
             return;            
         }
@@ -143,7 +166,7 @@ void handleQuote(std::map<std::string, ServerSession*>& sessionMap,const httplib
         TPMS_ATTEST attest;        
         size_t offset = 0;                                
         int32_t result = decodeAttestationCbor((uint8_t*)req.body.data(),req.body.length(),&attest_blob,&signature);        
-        int32_t rc = decodePublicKey((uint8_t*)session->pubKey, session->pubKeyLength, &keyInfo);                
+        int32_t rc = decodePublicKey((uint8_t*)session->pubKey, session->pubKeyLength, &keyInfo,NULL,NULL);                
         
         if(rc != TSS2_RC_SUCCESS){
             std::cout << "Tss2_MU_TPM2B_PUBLIC_Unmarshal failed " << rc << std::endl;
