@@ -8,8 +8,6 @@
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
 #include <openssl/bn.h>
-
-
 #include <openssl/evp.h>
 #include <openssl/bn.h>
 #include <openssl/rsa.h>
@@ -19,12 +17,8 @@
 #include <iostream>
 #define DEFAULT_RSA_EXPONENT 65537
 
-EVP_PKEY* convertTpm2bPublicToEvp(const TPM2B_PUBLIC *pub) {
-    
-    
-    std::cout << pub->publicArea.type << " " << pub->publicArea.nameAlg << std::endl;
-
-    
+EVP_PKEY* convertTpm2bPublicToEvp(const TPM2B_PUBLIC *pub) {    
+        std::cout << pub->publicArea.type << " " << pub->publicArea.nameAlg << std::endl;    
         const TPM2B_PUBLIC_KEY_RSA *rsa = &pub->publicArea.unique.rsa;
         BIGNUM *n = BN_bin2bn(rsa->buffer, rsa->size, NULL);
         BIGNUM *e = BN_new(); BN_set_word(e, DEFAULT_RSA_EXPONENT);

@@ -9,13 +9,36 @@
 #include <tss2/tss2_mu.h>
 #include <tss2/tss2_tpm2_types.h>
 
+extern size_t encode_cred_to_cbor(
+                        const unsigned char* session_id,
+                        unsigned int session_id_len,
+                        TPM2B_ID_OBJECT *cred, 
+                        TPM2B_ENCRYPTED_SECRET *secret, 
+                        unsigned char **out_buffer);
 
-
+extern int decode_cred_from_cbor(unsigned char *cbor_data, 
+                          size_t cbor_len, 
+                          TPM2B_ID_OBJECT *out_cred, 
+                          TPM2B_ENCRYPTED_SECRET *out_secret,
+                          unsigned char* session_id,
+                          unsigned int* session_id_len);
 extern int32_t encodeAttestationCbor( TPM2B_ATTEST attest,TPMT_SIGNATURE signature, uint8_t** serializedOut,size_t* lengthOut);
-extern int32_t encodePublicKey(TPM2B_PUBLIC* publicKey,uint8_t** serializedOut,size_t* lengthOut);
-
+extern int32_t encodePublicKey(
+    TPM2B_PUBLIC* publicKey,
+    TPM2B_ATTEST* attest,
+    TPMT_SIGNATURE* signature,
+    const uint8_t* ekCert,
+    size_t ekCertLen,
+    uint8_t** serializedOut,
+    size_t* lengthOut);
 extern int32_t decodeAttestationCbor(const uint8_t* cborData,uint32_t cborDataLen, TPM2B_ATTEST* attestOut,TPMT_SIGNATURE* signatureOut);
-extern int32_t decodePublicKey(const uint8_t* cborData,uint32_t cborDataLen, TPM2B_PUBLIC* publicKeyOut);
-
+extern int32_t decodePublicKey(
+    const uint8_t* cborData,
+    size_t cborDataLen,
+    TPM2B_PUBLIC* publicKeyOut,
+    TPM2B_ATTEST* attest,
+    TPMT_SIGNATURE* signature,
+    uint8_t** ekCertOut,
+    size_t* ekCertLenOut);
 extern int32_t encodeImaEvents(struct ImaEventSha256* events, uint32_t len,uint8_t** serializedOut,size_t* lengthOut);
 extern int32_t decodeImaEvents(const uint8_t* cborData,uint32_t cborDataLen, ImaEventSha256** events, size_t* size );

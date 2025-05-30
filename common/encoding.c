@@ -9,15 +9,106 @@
 #include <openssl/sha.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+
 #include <tss2/tss2_mu.h>
 #include <tss2/tss2_tpm2_types.h>
+#include <tss2/tss2_common.h>
+#include <tss2/tss2_esys.h>
+#include <tss2/tss2_mu.h>
+#include <tss2/tss2_sys.h>
 #include "../common/ima_log_lib/inc/ima_template_parser.h"
 #include "../common/ima_log_lib/inc/ima_verify.h"
 #include "ima_log_lib/inc/types.h"
 #include "libcbor/src/cbor/arrays.h"
 extern void displayDigest(uint8_t *pcr, int32_t n);
 
+size_t encode_cred_to_cbor(
+                        const unsigned char* session_id,
+                        unsigned int session_id_len,
+                        TPM2B_ID_OBJECT *cred, 
+                        TPM2B_ENCRYPTED_SECRET *secret, 
+                        unsigned char **out_buffer) {
+    
+    cbor_item_t *map = cbor_new_definite_map(3);
+
+    int res = cbor_map_add(map, (struct cbor_pair) {
+        .key = cbor_move(cbor_build_string("cred")),
+        .value = cbor_move(cbor_build_bytestring(cred->credential, cred->size))
+    });
+
+    res = cbor_map_add(map, (struct cbor_pair) {
+        .key = cbor_move(cbor_build_string("secret")),
+        .value = cbor_move(cbor_build_bytestring(secret->secret, secret->size))
+    });
+    
+    res = cbor_map_add(map, (struct cbor_pair) {
+        .key = cbor_move(cbor_build_string("session_id")),
+        .value = cbor_move(cbor_build_bytestring(session_id, session_id_len))
+    });
+
+    size_t buffer_size=0;
+    size_t packed_size = cbor_serialize_alloc(map, out_buffer, &buffer_size);
+    cbor_decref(&map); // Correct API for ref count
+    return packed_size;
+}
+
+
+cbor_item_t* find_in_map(cbor_item_t *map, const char *key_str) {
+    size_t map_size = cbor_map_size(map);
+    struct cbor_pair *handle = cbor_map_handle(map);
+    size_t key_len = strlen(key_str);
+
+    for (size_t i = 0; i < map_size; i++) {
+        if (cbor_isa_string(handle[i].key)) {
+            size_t current_len = cbor_string_length(handle[i].key);
+            const char *current_key =
+                (const char *)cbor_string_handle(handle[i].key);
+
+            if (current_len == key_len &&
+                memcmp(current_key, key_str, key_len) == 0) {
+                return handle[i].value;
+            }
+        }
+    }
+    return NULL;
+}
+
+int decode_cred_from_cbor(unsigned char *cbor_data, 
+                          size_t cbor_len, 
+                          TPM2B_ID_OBJECT *out_cred, 
+                          TPM2B_ENCRYPTED_SECRET *out_secret,
+                          unsigned char* session_id,
+                          unsigned int* session_id_len){
+    struct cbor_load_result result;
+    cbor_item_t *map = cbor_load(cbor_data, cbor_len, &result);
+
+    if (!map || !cbor_isa_map(map)) {
+        if (map) cbor_decref(&map);
+        return -1;
+    }
+    
+    cbor_item_t *cred_item = find_in_map(map, "cred");
+    if (cred_item && cbor_isa_bytestring(cred_item)) {
+        out_cred->size = cbor_bytestring_length(cred_item);
+        memcpy(out_cred->credential, cbor_bytestring_handle(cred_item), out_cred->size);
+    }
+    
+    cbor_item_t *sec_item = find_in_map(map, "secret");
+    if (sec_item && cbor_isa_bytestring(sec_item)) {
+        out_secret->size = cbor_bytestring_length(sec_item);
+        memcpy(out_secret->secret, cbor_bytestring_handle(sec_item), out_secret->size);
+    }
+
+    cbor_item_t *sesh_item = find_in_map(map, "session_id");
+    if (sec_item && cbor_isa_bytestring(sec_item)) {
+        (*session_id_len) = cbor_bytestring_length(sesh_item);
+        memcpy(session_id, cbor_bytestring_handle(sesh_item), *session_id_len);
+    }
+    cbor_decref(&map);
+    return 0;
+}
 
 int32_t encodeAttestationCbor(
     TPM2B_ATTEST attest,
@@ -127,41 +218,114 @@ int32_t decodeAttestationCbor(
     cbor_decref(&root);
     return 0;
 }
-int32_t encodePublicKey(TPM2B_PUBLIC* publicKey,uint8_t** serializedOut,size_t* lengthOut) {
+
+
+// Enroll
+int32_t encodePublicKey(
+    TPM2B_PUBLIC* publicKey,
+    TPM2B_ATTEST* attest,
+    TPMT_SIGNATURE* signature,
+    const uint8_t* ekCert,
+    size_t ekCertLen,
+    uint8_t** serializedOut,
+    size_t* lengthOut)
+{
+    cbor_item_t* arr = cbor_new_definite_array(4);    
     uint8_t buf[1024];
     size_t offset = 0;
-
     TSS2_RC rc = Tss2_MU_TPM2B_PUBLIC_Marshal(publicKey, buf, sizeof(buf), &offset);
     if (rc != TSS2_RC_SUCCESS) {
         fprintf(stderr, "Failed to marshal TPM2B_PUBLIC: 0x%x\n", rc);
         return rc;
     }
-    cbor_item_t* item = cbor_build_bytestring(buf,offset);
-    cbor_serialize_alloc(item,serializedOut,lengthOut);
-    cbor_decref(&item);
-    return rc;   
+    int res = cbor_array_push(arr, cbor_build_bytestring(buf, offset));
+    
+    rc = Tss2_MU_TPMT_SIGNATURE_Marshal(signature,buf,sizeof(buf),&offset);
+    if (rc != TSS2_RC_SUCCESS) {
+        fprintf(stderr, "Failed to marshal TPMT_SIGNATURE: 0x%x\n", rc);
+        return rc;
+    }
+    res = cbor_array_push(arr, cbor_build_bytestring(buf, offset));
+    
+    rc = Tss2_MU_TPM2B_ATTEST_Marshal(attest, buf, sizeof(buf), &offset);
+    if (rc != TSS2_RC_SUCCESS) {
+        fprintf(stderr, "Failed to marshal TPMT_SIGNATURE: 0x%x\n", rc);
+        return rc;
+    }
+    res = cbor_array_push(arr, cbor_build_bytestring(buf, offset));
+    res = cbor_array_push(arr, cbor_build_bytestring(ekCert, ekCertLen));
+
+    cbor_serialize_alloc(arr, serializedOut, lengthOut);
+    cbor_decref(&arr);
+    return rc;
 }
 
-int32_t decodePublicKey(const uint8_t* cborData, uint32_t cborDataLen, TPM2B_PUBLIC* publicKeyOut) {
+int32_t decodePublicKey(
+    const uint8_t* cborData,
+    size_t cborDataLen,
+    TPM2B_PUBLIC* publicKeyOut,
+    TPM2B_ATTEST* attestOut,
+    TPMT_SIGNATURE* signatureOut,
+    uint8_t** ekCertOut,
+    size_t* ekCertLenOut)
+{
     struct cbor_load_result result;
-    cbor_item_t* t = cbor_load(cborData, cborDataLen, &result);
-    if (!t || !cbor_isa_bytestring(t)) {
-        fprintf(stderr, "Expected top-level CBOR bytestring for TPM2B_PUBLIC\n");
-        if (t) cbor_decref(&t);
+    cbor_item_t* root = cbor_load(cborData, cborDataLen, &result);
+
+    if (!root || !cbor_isa_array(root) || cbor_array_size(root) != 4) {
+        fprintf(stderr, "Expected CBOR array of 4 elements\n");
+        if (root) cbor_decref(&root);
         return -1;
     }
 
-    const uint8_t* buf = cbor_bytestring_handle(t);
-    size_t bufLen = cbor_bytestring_length(t);
-    size_t offset = 0;
+    cbor_item_t* pubKeyItem = cbor_array_get(root, 0);
+    cbor_item_t* signatureItem = cbor_array_get(root, 1);
+    cbor_item_t* attestItem = cbor_array_get(root, 2);    
+    cbor_item_t* certItem = cbor_array_get(root, 3);
 
-    TSS2_RC rc = Tss2_MU_TPM2B_PUBLIC_Unmarshal(buf, bufLen, &offset, publicKeyOut);
-    if (rc != TSS2_RC_SUCCESS) {
-        fprintf(stderr, "Unmarshal failed: 0x%X\n", rc);
+    if (!cbor_isa_bytestring(pubKeyItem) || !cbor_isa_bytestring(certItem) || !cbor_isa_bytestring(signatureItem) || !cbor_isa_bytestring(attestItem)) {
+        fprintf(stderr, "Both array elements must be bytestrings\n");
+        cbor_decref(&root);
+        return -1;
     }
 
-    cbor_decref(&t);
-    return rc;
+    // Unmarshal TPM2B_PUBLIC
+    const uint8_t* pubBuf = cbor_bytestring_handle(pubKeyItem);
+    size_t pubLen = cbor_bytestring_length(pubKeyItem);
+    size_t offset = 0;
+    TSS2_RC rc = Tss2_MU_TPM2B_PUBLIC_Unmarshal(pubBuf, pubLen, &offset, publicKeyOut);
+    if (rc != TSS2_RC_SUCCESS) {
+        fprintf(stderr, "Failed to unmarshal TPM2B_PUBLIC: 0x%x\n", rc);
+        cbor_decref(&root);
+        return rc;
+    }
+
+    rc = Tss2_MU_TPMT_SIGNATURE_Unmarshal(cbor_bytestring_handle(signatureItem),cbor_bytestring_length(signatureItem) , &offset, signatureOut);
+    if (rc != TSS2_RC_SUCCESS) {
+        fprintf(stderr, "Failed to unmarshal TPMT_SIGNATURE: 0x%x\n", rc);
+        cbor_decref(&root);
+        return rc;
+    }
+
+
+    rc = Tss2_MU_TPM2B_ATTEST_Unmarshal(cbor_bytestring_handle(attestItem),cbor_bytestring_length(attestItem) , &offset, attestOut);
+    if (rc != TSS2_RC_SUCCESS) {
+        fprintf(stderr, "Failed to unmarshal TPM2B_PUBLIC: 0x%x\n", rc);
+        cbor_decref(&root);
+        return rc;
+    }
+
+    // Copy EK cert
+    *ekCertLenOut = cbor_bytestring_length(certItem);
+    *ekCertOut = malloc(*ekCertLenOut);
+    if (!*ekCertOut) {
+        fprintf(stderr, "Memory allocation for EK cert failed\n");
+        cbor_decref(&root);
+        return -2;
+    }
+    memcpy(*ekCertOut, cbor_bytestring_handle(certItem), *ekCertLenOut);
+    cbor_decref(&root);
+    return 0;
 }
 
 

@@ -11,6 +11,21 @@ X509* loadPemX509FromMemory(const uint8_t* pem_buf, size_t len) {
     return cert;
 }
 
+int32_t extractPublicKey(X509 *ek_cert, EVP_PKEY* key) {
+    if (!ek_cert) {
+        fprintf(stderr, "Certificate object is null\n");
+        return 1;
+    }
+
+    // 1. Extract the public key (internal reference, do not free this pointer)
+    key = X509_get0_pubkey(ek_cert);
+    if (!key) {
+        fprintf(stderr, "Error extracting public key from certificate\n");
+        return 1;
+    }
+    return 0;
+}
+
 int32_t verifyEkCertificate(const char *root_bundle_path, uint8_t* ekCertificate, size_t ekCertLen ) {    
 
     X509 *ek_cert = loadPemX509FromMemory(ekCertificate,ekCertLen);
@@ -20,7 +35,7 @@ int32_t verifyEkCertificate(const char *root_bundle_path, uint8_t* ekCertificate
     if (!store) {
         fprintf(stderr, "Failed to create X509_STORE\n");
         X509_free(ek_cert);
-        return 1;
+        return 0;
     }
 
     // Load root certificates into store
@@ -28,7 +43,7 @@ int32_t verifyEkCertificate(const char *root_bundle_path, uint8_t* ekCertificate
         fprintf(stderr, "Failed to load root cert bundle\n");
         X509_STORE_free(store);
         X509_free(ek_cert);
-        return 1;
+        return 0;
     }
 
     // Create a verification context
@@ -37,25 +52,25 @@ int32_t verifyEkCertificate(const char *root_bundle_path, uint8_t* ekCertificate
         fprintf(stderr, "Failed to create X509_STORE_CTX\n");
         X509_STORE_free(store);
         X509_free(ek_cert);
-        return 1;
+        return 0;
     }
 
     // Initialize context for verification
     if (!X509_STORE_CTX_init(ctx, store, ek_cert, NULL)) {
-        fprintf(stderr, "Failed to initialize verify context\n");
+        fprintf(stderr, "failed to initialize verify context\n");
         X509_STORE_CTX_free(ctx);
         X509_STORE_free(store);
         X509_free(ek_cert);
-        return 1;
+        return 0;
     }
 
     // Verify EK certificate
     int result = X509_verify_cert(ctx);
     if (result == 1) {
-        printf("✅ EK certificate verified successfully!\n");
+        printf("EK certificate verified successfully!\n");
     } else {
         int err = X509_STORE_CTX_get_error(ctx);
-        fprintf(stderr, "❌ Verification failed: %s\n", X509_verify_cert_error_string(err));
+        fprintf(stderr, "verification failed: %s\n", X509_verify_cert_error_string(err));
     }
 
     // Cleanup

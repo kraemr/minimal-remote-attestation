@@ -21,18 +21,9 @@ void print_server_session(const ServerSession* session) {
     printf("=== ServerSession ===\n");
     printf("Device ID: %s\n", session->deviceId);
     printf("Session ID: %s\n", session->sessionId);
-
-    printf("Public Key Length: %u bytes\n", session->pubKeyLength);
-    printf("Public Key: ");
-    if (session->pubKey && session->pubKeyLength > 0) {
-        print_hex(session->pubKey, session->pubKeyLength);
-        printf("\n");
-    } else {
-        printf("NULL\n");
-    }
-
     printf("Attestation Length: %u bytes\n", session->attestLength);
     printf("Last Valid Attestation: ");
+    printf("secret %s\n",session->secret);
     if (session->attestLength > 0) {
         print_hex(session->lastValidAttestation, session->attestLength);
         printf("\n");

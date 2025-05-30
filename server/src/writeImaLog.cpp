@@ -4,7 +4,6 @@
 #include <openssl/sha.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <vector>
 #include "../../common/ima_log_lib/inc/ima_verify.h"
 
 template <std::size_t BufferSize>
@@ -16,7 +15,6 @@ struct ImaEvent {
         uint32_t templateDataLength;
         uint8_t* templateData; // contains the hash we actually care about
 };
-#include <iostream>
 
 int32_t  writeEventLog (int fd, ImaEventSha256* events, uint32_t length) {
     for(uint32_t i = 0; i < length; i++){

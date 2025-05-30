@@ -3,6 +3,15 @@ CREATE TABLE DeviceIds(
     device_id varchar(64)
 );
 
+CREATE TABLE Attesters(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER,
+    ip_address varchar(64),
+    whitelist_path varchar(256),
+    whitelist_pcr_path varchar(256),
+    time_added DATE
+);
+
 CREATE TABLE RemoteAttestationSession(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id NOT NULL,

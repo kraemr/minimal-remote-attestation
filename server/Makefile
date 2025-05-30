@@ -5,11 +5,11 @@ CC = gcc
 # Flags
 CXXFLAGS = -Wall -Wextra -O2 -fpermissive -fsanitize=address
 CFLAGS = -Wall -Wextra -O2 -fsanitize=address
-LDFLAGS = -luuid -lcrypto -lcbor -ltss2-esys -ltss2-mu -fsanitize=address
+LDFLAGS = -luuid -lcrypto -lcbor -ltss2-esys -ltss2-mu -fsanitize=address -lsqlite3
 
 # Sources
 CPP_SRCS := $(wildcard src/*.cpp)
-C_SRCS := ../common/encoding.c $(wildcard ../common/ima_log_lib/src/*.c)
+C_SRCS := ../common/encoding.c ../common/verify_ek_cert.c  $(wildcard ../common/ima_log_lib/src/*.c)
 
 # Objects
 CPP_OBJS := $(CPP_SRCS:.cpp=.o)
