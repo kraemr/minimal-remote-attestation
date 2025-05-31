@@ -55,9 +55,9 @@ bool Database::loadServerSession(const char* deviceId, const char* sessionId, Se
         // Public key
         int len = sqlite3_column_bytes(stmt, 1);
         const void* data = sqlite3_column_blob(stmt, 1);
-        session->pubKey = (uint8_t*)malloc(len);
-        memcpy(session->pubKey, data, len);
-        session->pubKeyLength = len;
+        //session->pubKey = (uint8_t*)malloc(len);
+        //memcpy(session->pubKey, data, len);
+        //session->pubKeyLength = len;
 
         // Quote
         int quoteLen = sqlite3_column_bytes(stmt, 2);
@@ -81,7 +81,7 @@ bool Database::updateServerSession(const ServerSession* session) {
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
-    sqlite3_bind_blob(stmt, 1, session->pubKey, session->pubKeyLength, SQLITE_STATIC);
+    //sqlite3_bind_blob(stmt, 1, session->pubKey, session->pubKeyLength, SQLITE_STATIC);
     if (session->attestLength > 0) {
         sqlite3_bind_blob(stmt, 2, session->lastValidAttestation, session->attestLength, SQLITE_STATIC);
     } else {
@@ -110,7 +110,7 @@ bool Database::addSession(ServerSession* session) {
     sqlite3_bind_text(stmt, 2, session->sessionId, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 3, "/logs/device42/", -1, SQLITE_STATIC);
     sqlite3_bind_null(stmt, 4);
-    sqlite3_bind_blob(stmt, 5, session->pubKey, session->pubKeyLength, SQLITE_STATIC);
+    //sqlite3_bind_blob(stmt, 5, session->pubKey, session->pubKeyLength, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 6, 0);
 
     int rc = sqlite3_step(stmt);

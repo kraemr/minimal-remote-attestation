@@ -127,7 +127,18 @@ int32_t main(int32_t argc, char *argv[]) {
   //TSS2_RC rc = getSigningKey(ectx,&attestationKeyHandle,&publicKey);
   printf("getEKCertificate len: %d\n", ekCertLen);
   TSS2_RC rc = createAttestationKey(ectx,&attestationKeyHandle,&publicKey,&private);
-  encodePublicKey(publicKey,buf,ekCertLen,&serializedCborPubKey,&len);
+  
+  TPM2B_DATA qualifyingData = { .size = 0 };  // Optional extra data included in attestation
+  TPMT_SIG_SCHEME inScheme = {
+      .scheme = TPM2_ALG_NULL, // Let TPM choose default scheme based on AK type
+  };
+  TPM2B_ATTEST* attest;
+  TPMT_SIGNATURE* signature;
+  rc = Esys_Certify(ectx, attestationKeyHandle, attestationKeyHandle, ESYS_TR_PASSWORD, ESYS_TR_PASSWORD,ESYS_TR_NONE, &qualifyingData, &inScheme, &attest, &signature);
+  if(rc != TSS2_RC_SUCCESS){
+    printf("Esys_Certify failed for attestation Key %d \n",rc);
+  }
+  encodePublicKey(publicKey,attest,signature,buf,ekCertLen,&serializedCborPubKey,&len);
 
   initCurl();  
   sendPostCbor(url, serializedCborPubKey, len, response);

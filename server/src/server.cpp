@@ -16,11 +16,15 @@
 #include <tss2/tss2_mu.h>
 #include <tss2/tss2_tpm2_types.h>
 #include <utility>
-#include "../../common/encoding.h"
+#include <stdio.h>
+
+#include "../inc/log.hpp"
 #include "../inc/sessions.hpp"
+#include "../../common/encoding.h"
 #include "../../common/ima_log_lib/inc/ima_verify.h"
 #include "../../common/ima_log_lib/inc/types.h"
-#include <stdio.h>
+
+
 
 extern void displayDigest(uint8_t *pcr, int32_t n);
 extern int32_t  writeEventLog (const char* path, ImaEventSha256* events, uint32_t length);
@@ -37,9 +41,9 @@ void sendSuccessResponse() {
 void getSession(std::map<std::string,ServerSession*>& sessionMap,char* sessionId,ServerSession** sessionRef) {
     if (sessionMap.find(std::string(sessionId)) != sessionMap.end()) {
         (*sessionRef) = sessionMap.at(std::string(sessionId));
-        std::cout << "session found nullptr? " << (sessionRef == nullptr)  << std::endl;
+        //std::cout << "session found nullptr? " << (sessionRef == nullptr)  << std::endl;
     }else{
-        std::cout << "session not found" << std::endl;
+        //std::cout << "session not found" << std::endl;
         sessionRef = nullptr;
     }
 }
@@ -50,11 +54,10 @@ int32_t initNewSession(std::map<std::string,ServerSession*>& sessionMap,std::str
     memcpy(session->deviceId,deviceId.data(), deviceId.size());
     memcpy(session->sessionId,sessionId.data(), sessionId.size());
     session->lastValidAtestationImaIndex = 0;        
-    session->lastValidAttestationTimestamp = 0;
-    session->pubKey = NULL;
-    
+    session->lastValidAttestationTimestamp = 0;        
     memset(session->sessionHash, 0,64);
     memcpy(session->sessionId,sessionId.data(),sessionId.length()+1);    
+    memset(session->pcrs[10],0,64); 
     std::pair<char*,ServerSession*> p(session->sessionId,session);
     
     sessionMap.insert(p);
@@ -79,11 +82,15 @@ void handleIma(std::map<std::string, ServerSession*>& sessionMap,const httplib::
     std::string sessionId = handleSessionHeaders(req, res);
     getSession(sessionMap,sessionId.data(),&session);        
     int32_t ret = decodeImaEvents( (uint8_t*)req.body.data(), req.body.size(),&events,&size);    
-    std::cout << "session == nullptr: " << (session == nullptr) << " handleIma size: " << size << std::endl;
+    //std::cout << "session == nullptr: " << (session == nullptr) << " handleIma size: " << size << std::endl;
     
-    for (int i = 0; i < size; i++) {        
+    for (int i = 0; i < size; i++) {                                
+        uint8_t zeroes[EVP_MAX_MD_SIZE];
+        memset(zeroes,0,EVP_MAX_MD_SIZE);       
         if(verifyQuoteStep(&events[i],session->pcrs,session->lastValidAttestation)) std::cout << "QUOTE DIGEST MATCHES " << std::endl;    
-    }            
+        //std::cout << "handleIma: "; displayDigest(session->pcrs[10], 32);
+        
+    }                    
     res.set_content("", "application/cbor");
 }
 
@@ -98,28 +105,23 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
             return;
         }                
         const char* deviceId = "DEADBEEF";
-        //sha256_base64((uint8_t*)req.body.data(),req.body.length(),deviceId,SHA256_DIGEST_LENGTH * 3);
-        //uuid(sessionId.data());
-        //std::cout << deviceId << " session_id: " << sessionId  << std::endl;        
-        //try{
-            //r = initNewSession(currentSessions,deviceId,std::string(out));
-        //}
-        //catch(std::exception e){
-           // std::cout << "enroll initNewSession: " << e.what() << std::endl;
-        //}
+    
         TPM2B_PUBLIC pubKey;
+        TPMT_SIGNATURE signature;
+        TPM2B_ATTEST attest;
+
         uint8_t* ekCert = nullptr;
         size_t ekCertLen = 0;
-
         std::cout<< "handleEnroll request len: " << req.body.length() << std::endl;
-        r = decodePublicKey((uint8_t*)req.body.data(),req.body.length(),&pubKey,&ekCert,&ekCertLen);
         
-        std::cout << "pubKey: " << pubKey.size << std::endl;
+        r = decodePublicKey((uint8_t*)req.body.data(),req.body.length(),&pubKey,&attest,&signature,&ekCert,&ekCertLen);
+            
 
         if (r != 0){
             // decodePubKey failed
             //return;
             std::cout << "handleEnroll decodePublicKey failed " <<  std::endl;
+            
         }
         r = verifyEkCertificate("../root-certs/root_bundle.pem",ekCert,ekCertLen );
         if(!r) {
@@ -128,15 +130,21 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
             std::cout << "handleEnroll verifyEkCert failed" << std::endl;
         }
 
+        bool signatureMatch = verifyQuoteSignature(pubKey,attest,signature);
+        if(signatureMatch){
+            std::cout << "verifyQuoteSignature succeeded! " << std::endl;            
+        }else{
+            std::cout << "verifyQuoteSignature MISMATCH! " << std::endl;            
+        }
+
+
         getSession(sessionMap,sessionId.data(),&session);        
         if( session == nullptr){                                            
             Database* db = new Database("sesh.db");            
             session = new ServerSession();      
             db->loadServerSession(deviceId, sessionId.c_str(),session);            
-            session->pubKeyLength = req.body.length();         
-            session->pubKey = (uint8_t*)malloc(req.body.length());
             memcpy(session->sessionId,sessionId.data(),37);
-            memcpy(session->pubKey,req.body.data(),req.body.length());
+            session->pubKey = pubKey;
             memcpy(session->deviceId,deviceId,outLen);                                        
             std::pair<char*,ServerSession*> p(session->sessionId,session);
             sessionMap.insert(p);                                
@@ -160,35 +168,32 @@ void handleQuote(std::map<std::string, ServerSession*>& sessionMap,const httplib
             sendErrResponse();
             return;            
         }
-        TPM2B_PUBLIC keyInfo = {};
+        TPM2B_PUBLIC keyInfo = session->pubKey;
         TPM2B_ATTEST attest_blob = {};
         TPMT_SIGNATURE signature;
         TPMS_ATTEST attest;        
         size_t offset = 0;                                
-        int32_t result = decodeAttestationCbor((uint8_t*)req.body.data(),req.body.length(),&attest_blob,&signature);        
-        int32_t rc = decodePublicKey((uint8_t*)session->pubKey, session->pubKeyLength, &keyInfo,NULL,NULL);                
-        
-        if(rc != TSS2_RC_SUCCESS){
-            std::cout << "Tss2_MU_TPM2B_PUBLIC_Unmarshal failed " << rc << std::endl;
-            return;
-        }
-       
+        int32_t result = decodeAttestationCbor((uint8_t*)req.body.data(),req.body.length(),&attest_blob,&signature);                    
+
         bool signatureMatch = verifyQuoteSignature(keyInfo,attest_blob,signature);
-        if (!signatureMatch) {            
+        if (!signatureMatch) {          
+            std::cout << "handleQuote signature failed" << std::endl;  
             return;
+        }else{
+            std::cout << "attestation signature matches " << std::endl;
         }
 
-        rc = Tss2_MU_TPMS_ATTEST_Unmarshal(
+        TSS2_RC rc = Tss2_MU_TPMS_ATTEST_Unmarshal(
             attest_blob.attestationData,
             attest_blob.size,
             &offset,
             &attest
         );
-      //  std::cout << "QUOTE_DIGEST: ";
-      //  print_hex(attest.attested.quote.pcrDigest.buffer,attest.attested.quote.pcrDigest.size);
-      //  std::cout << std::endl;
+   
         session->attestLength = attest.attested.quote.pcrDigest.size;
         memcpy( session->lastValidAttestation,attest.attested.quote.pcrDigest.buffer, attest.attested.quote.pcrDigest.size );
+        //std::cout << "quote digest: ";
+        //displayDigest(session->lastValidAttestation,32);
         res.set_content("", "text/plain");
 }
 

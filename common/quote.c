@@ -243,6 +243,9 @@ TSS2_RC create_quote(
   return 0;
 }
 
+
+
+
 TSS2_RC getSigningKey (   
     ESYS_CONTEXT* ctx ,
     ESYS_TR* attestationKeyHandle, 
