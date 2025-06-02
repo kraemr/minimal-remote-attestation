@@ -17,15 +17,11 @@
 #include <tss2/tss2_tpm2_types.h>
 #include <utility>
 #include <stdio.h>
-
 #include "../inc/log.hpp"
 #include "../inc/sessions.hpp"
 #include "../../common/encoding.h"
 #include "../../common/ima_log_lib/inc/ima_verify.h"
 #include "../../common/ima_log_lib/inc/types.h"
-
-
-
 extern void displayDigest(uint8_t *pcr, int32_t n);
 extern int32_t  writeEventLog (const char* path, ImaEventSha256* events, uint32_t length);
 extern bool verifyQuoteSignature(TPM2B_PUBLIC pub_key, TPM2B_ATTEST quote, TPMT_SIGNATURE signature);
@@ -81,22 +77,31 @@ void handleIma(std::map<std::string, ServerSession*>& sessionMap,const httplib::
     if(req.body.empty()) return;
     std::string sessionId = handleSessionHeaders(req, res);
     getSession(sessionMap,sessionId.data(),&session);        
-    int32_t ret = decodeImaEvents( (uint8_t*)req.body.data(), req.body.size(),&events,&size);    
-    //std::cout << "session == nullptr: " << (session == nullptr) << " handleIma size: " << size << std::endl;
-    
+    int32_t ret = decodeImaEvents( (uint8_t*)req.body.data(), req.body.size(),&events,&size);        
+    //std::cout << session->isQuoteTrusted << " " << session->isAkTrusted << " " << session->isEKTrusted << std::endl;
     for (int i = 0; i < size; i++) {                                
         uint8_t zeroes[EVP_MAX_MD_SIZE];
         memset(zeroes,0,EVP_MAX_MD_SIZE);       
-        if(verifyQuoteStep(&events[i],session->pcrs,session->lastValidAttestation)) std::cout << "QUOTE DIGEST MATCHES " << std::endl;    
-        //std::cout << "handleIma: "; displayDigest(session->pcrs[10], 32);
-        
+        if(
+            verifyQuoteStep(&events[i],session->pcrs,session->lastValidAttestation) &&
+            session->isQuoteTrusted &&
+            session->isAkTrusted &&
+            session->isEKTrusted
+        ){
+            session->isTrustWorthy = true;            
+            std::cout << "quote digest matches and all other steps where successful!!!" << std::endl;
+        }
+        else{
+            session->isTrustWorthy = false;
+        }                 
     }                    
+    free(events);
     res.set_content("", "application/cbor");
 }
 
 void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httplib::Request & req, httplib::Response &res) {
-        int32_t r = 0;
         std::string sessionId = handleSessionHeaders(req,res);
+        int32_t r = 0;        
         uint32_t outLen = 0;
         uint8_t* data = nullptr;
         ServerSession* session = nullptr;         
@@ -104,37 +109,34 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
             std::cout << "missing public key" << std::endl;
             return;
         }                
-        const char* deviceId = "DEADBEEF";
-    
+        const char* deviceId = "DEADBEEF";    
+        
         TPM2B_PUBLIC pubKey;
         TPMT_SIGNATURE signature;
         TPM2B_ATTEST attest;
-
         uint8_t* ekCert = nullptr;
         size_t ekCertLen = 0;
-        std::cout<< "handleEnroll request len: " << req.body.length() << std::endl;
+        std::cout<< "handleEnroll request len: " << req.body.length() << std::endl;        
         
-        r = decodePublicKey((uint8_t*)req.body.data(),req.body.length(),&pubKey,&attest,&signature,&ekCert,&ekCertLen);
-            
-
-        if (r != 0){
-            // decodePubKey failed
-            //return;
+        r = decodePublicKey((uint8_t*)req.body.data(),req.body.length(),&pubKey,&attest,&signature,&ekCert,&ekCertLen);            
+        if (r != 0){            
             std::cout << "handleEnroll decodePublicKey failed " <<  std::endl;
-            
+            return;
         }
         r = verifyEkCertificate("../root-certs/root_bundle.pem",ekCert,ekCertLen );
         if(!r) {
             // EKCert is not to be trusted
             //return;
             std::cout << "handleEnroll verifyEkCert failed" << std::endl;
+            return;
         }
 
         bool signatureMatch = verifyQuoteSignature(pubKey,attest,signature);
         if(signatureMatch){
             std::cout << "verifyQuoteSignature succeeded! " << std::endl;            
         }else{
-            std::cout << "verifyQuoteSignature MISMATCH! " << std::endl;            
+            std::cout << "verifyQuoteSignature MISMATCH! " << std::endl;      
+            return;      
         }
 
 
@@ -147,6 +149,10 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
             session->pubKey = pubKey;
             memcpy(session->deviceId,deviceId,outLen);                                        
             std::pair<char*,ServerSession*> p(session->sessionId,session);
+            
+            session->isAkTrusted = true;
+            session->isEKTrusted = true;
+
             sessionMap.insert(p);                                
         }
         else{
@@ -157,43 +163,45 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
 
 void handleQuote(std::map<std::string, ServerSession*>& sessionMap,const httplib::Request & req, httplib::Response &res) {
         auto content = req.body;        
-        ServerSession* session = nullptr;        
-        if(content.empty()){
-            std::cout << "missing keys" << std::endl;
-            return;
-        }
+        ServerSession* session = nullptr;               
         std::string sessionId = handleSessionHeaders(req, res);
         getSession(sessionMap,sessionId.data(),&session);
-        if(session == nullptr ){ 
+        
+        if(session == nullptr ) { 
             sendErrResponse();
             return;            
         }
+
+        if(content.empty()){
+            session->isTrustWorthy = false;
+            std::cout << "missing keys" << std::endl;
+            return;
+        }
+        session->isQuoteTrusted = false;
+
         TPM2B_PUBLIC keyInfo = session->pubKey;
         TPM2B_ATTEST attest_blob = {};
         TPMT_SIGNATURE signature;
         TPMS_ATTEST attest;        
         size_t offset = 0;                                
         int32_t result = decodeAttestationCbor((uint8_t*)req.body.data(),req.body.length(),&attest_blob,&signature);                    
-
         bool signatureMatch = verifyQuoteSignature(keyInfo,attest_blob,signature);
         if (!signatureMatch) {          
             std::cout << "handleQuote signature failed" << std::endl;  
+            session->isQuoteTrusted = false;
             return;
         }else{
             std::cout << "attestation signature matches " << std::endl;
+            session->isQuoteTrusted = true;
         }
-
         TSS2_RC rc = Tss2_MU_TPMS_ATTEST_Unmarshal(
             attest_blob.attestationData,
             attest_blob.size,
             &offset,
             &attest
-        );
-   
+        );   
         session->attestLength = attest.attested.quote.pcrDigest.size;
         memcpy( session->lastValidAttestation,attest.attested.quote.pcrDigest.buffer, attest.attested.quote.pcrDigest.size );
-        //std::cout << "quote digest: ";
-        //displayDigest(session->lastValidAttestation,32);
         res.set_content("", "text/plain");
 }
 
