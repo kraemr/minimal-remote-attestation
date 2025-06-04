@@ -9,8 +9,7 @@
 extern TSS2_RC createAttestationKey( 
   ESYS_CONTEXT* ctx ,
   ESYS_TR* attestationKeyHandle, 
-  TPM2B_PUBLIC **outAkPublic,    // needed for quote verification
-  TPM2B_PRIVATE **outAkPrivate
+  TPM2B_PUBLIC **outAkPublic    // needed for quote verification
 );
 
 // Create a quote with the attestatoinKeyHandle

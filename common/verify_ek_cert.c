@@ -42,7 +42,7 @@ int32_t verifyEkCertificate(const char *root_bundle_path, uint8_t* ekCertificate
 
     // Initialize context for verification
     if (!X509_STORE_CTX_init(ctx, store, ek_cert, NULL)) {
-        fprintf(stderr, "Failed to initialize verify context\n");
+        fprintf(stderr, "failed to initialize verify context\n");
         X509_STORE_CTX_free(ctx);
         X509_STORE_free(store);
         X509_free(ek_cert);
@@ -52,10 +52,10 @@ int32_t verifyEkCertificate(const char *root_bundle_path, uint8_t* ekCertificate
     // Verify EK certificate
     int result = X509_verify_cert(ctx);
     if (result == 1) {
-        printf("✅ EK certificate verified successfully!\n");
+        printf("EK certificate verified successfully!\n");
     } else {
         int err = X509_STORE_CTX_get_error(ctx);
-        fprintf(stderr, "❌ Verification failed: %s\n", X509_verify_cert_error_string(err));
+        fprintf(stderr, "verification failed: %s\n", X509_verify_cert_error_string(err));
     }
 
     // Cleanup

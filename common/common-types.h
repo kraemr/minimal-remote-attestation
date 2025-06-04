@@ -28,9 +28,7 @@ typedef struct ServerSession {
     bool isAkTrusted;
     bool isEKTrusted;
     bool isQuoteTrusted;
-
-
-
+    bool isMeasurementsTrusted;
     uint64_t lastValidAttestationTimestamp;
     uint64_t lastValidAtestationImaIndex; //This specifies the point at which the last Attestation was valid
     uint8_t sessionHash[EVP_MAX_MD_SIZE];

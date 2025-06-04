@@ -21,11 +21,14 @@
 #include "../inc/sessions.hpp"
 #include "../../common/encoding.h"
 #include "../../common/ima_log_lib/inc/ima_verify.h"
+#include "../../common/ima_log_lib/inc/ima_template_parser.h"
 #include "../../common/ima_log_lib/inc/types.h"
+#include <thread>
 extern void displayDigest(uint8_t *pcr, int32_t n);
 extern int32_t  writeEventLog (const char* path, ImaEventSha256* events, uint32_t length);
 extern bool verifyQuoteSignature(TPM2B_PUBLIC pub_key, TPM2B_ATTEST quote, TPMT_SIGNATURE signature);
 extern int32_t verifyEkCertificate(const char *root_bundle_path, uint8_t* ekCertificate, size_t ekCertLen );
+std::map<std::string,ServerSession*> currentSessions;            
 
 void sendErrResponse() {
 }
@@ -53,20 +56,31 @@ int32_t initNewSession(std::map<std::string,ServerSession*>& sessionMap,std::str
     session->lastValidAttestationTimestamp = 0;        
     memset(session->sessionHash, 0,64);
     memcpy(session->sessionId,sessionId.data(),sessionId.length()+1);    
-    memset(session->pcrs[10],0,64); 
-    std::pair<char*,ServerSession*> p(session->sessionId,session);
-    
+    memset(session->pcrs[10],0,64);     
+    std::pair<char*,ServerSession*> p(session->sessionId,session);    
     sessionMap.insert(p);
     return 0;
 }
 
 
 // returns a session_id if it was set by the client
-// maybe return session object from here ?
 std::string handleSessionHeaders(const httplib::Request & req, httplib::Response &res) {
     //std::string sessionId = req.get_header_value("Session-ID");
     std::string sessionId = "7ebad9a7-57f5-4ce6-9785-e42cadf7373e";
     return sessionId;
+}
+
+// Takes an Ima Measurement and compares it to known good values
+void verifyImaMeasurementWhitelist(ImaEventSha256* event, const char* whitelistPath) {
+    
+}
+
+bool checkSessionTrustworthiness(ServerSession* sesion) {
+    if(sesion == nullptr){
+        return false;
+    }
+    bool trustwothy = sesion->isQuoteTrusted && sesion->isAkTrusted && sesion->isEKTrusted && sesion->isMeasurementsTrusted;
+    std::cout << "Session is trustworthy: " << trustwothy <<std::endl;;
 }
 
 // /ima
@@ -79,21 +93,16 @@ void handleIma(std::map<std::string, ServerSession*>& sessionMap,const httplib::
     getSession(sessionMap,sessionId.data(),&session);        
     int32_t ret = decodeImaEvents( (uint8_t*)req.body.data(), req.body.size(),&events,&size);        
     //std::cout << session->isQuoteTrusted << " " << session->isAkTrusted << " " << session->isEKTrusted << std::endl;
+    session->isMeasurementsTrusted = false;
+
     for (int i = 0; i < size; i++) {                                
         uint8_t zeroes[EVP_MAX_MD_SIZE];
         memset(zeroes,0,EVP_MAX_MD_SIZE);       
-        if(
-            verifyQuoteStep(&events[i],session->pcrs,session->lastValidAttestation) &&
-            session->isQuoteTrusted &&
-            session->isAkTrusted &&
-            session->isEKTrusted
-        ){
-            session->isTrustWorthy = true;            
-            std::cout << "quote digest matches and all other steps where successful!!!" << std::endl;
+        // if at some point the measurements match the quote, it is trustworthy
+        if(verifyQuoteStep(&events[i],session->pcrs,session->lastValidAttestation)){
+            session->isMeasurementsTrusted = true;        
+            checkSessionTrustworthiness(session);    
         }
-        else{
-            session->isTrustWorthy = false;
-        }                 
     }                    
     free(events);
     res.set_content("", "application/cbor");
@@ -118,6 +127,7 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
         size_t ekCertLen = 0;
         std::cout<< "handleEnroll request len: " << req.body.length() << std::endl;        
         
+        
         r = decodePublicKey((uint8_t*)req.body.data(),req.body.length(),&pubKey,&attest,&signature,&ekCert,&ekCertLen);            
         if (r != 0){            
             std::cout << "handleEnroll decodePublicKey failed " <<  std::endl;
@@ -138,7 +148,6 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
             std::cout << "verifyQuoteSignature MISMATCH! " << std::endl;      
             return;      
         }
-
 
         getSession(sessionMap,sessionId.data(),&session);        
         if( session == nullptr){                                            
@@ -161,38 +170,54 @@ void handleEnroll(std::map<std::string, ServerSession*>& sessionMap,const httpli
         res.set_content(sessionId, "text/plain");        
 }
 
+bool checkQuoteFreshness(ServerSession* session, TPMS_ATTEST quote) {
+    // Defines the amount a quote can come later than the specified timeframe
+    const uint64_t allowedDrift = 1600;
+    const uint64_t timeFrame = 60000; // one minute in ms
+
+    std::cout << " quote clock: " << quote.clockInfo.clock << std::endl;
+    std::cout << " last valid attest" << session->lastValidAttestationTimestamp  << std::endl;
+
+    bool isMonotonic = (quote.clockInfo.clock > session->lastValidAttestationTimestamp);
+    int64_t timeDiff = quote.clockInfo.clock - session->lastValidAttestationTimestamp;
+    // Old Quote was used
+    if(timeDiff < 0){
+        std::cout << "timeDiff < 0" << std::endl;
+        return false;
+    }
+
+    bool isWithinTimeFrame = ((timeDiff - timeFrame) < allowedDrift);
+    std::cout << timeDiff << " drift: " << (timeDiff - timeFrame) << "ismonotonic: " << isMonotonic << " isWithinTime: " << ((timeDiff - timeFrame) < allowedDrift) << std::endl;
+    session->lastValidAttestationTimestamp = quote.clockInfo.clock;
+    return isMonotonic && isWithinTimeFrame;
+}
+
 void handleQuote(std::map<std::string, ServerSession*>& sessionMap,const httplib::Request & req, httplib::Response &res) {
         auto content = req.body;        
         ServerSession* session = nullptr;               
         std::string sessionId = handleSessionHeaders(req, res);
         getSession(sessionMap,sessionId.data(),&session);
-        
-        if(session == nullptr ) { 
+         
+        if(session == nullptr ) {
             sendErrResponse();
             return;            
         }
-
-        if(content.empty()){
-            session->isTrustWorthy = false;
+        session->isQuoteTrusted = false;
+        if(content.empty()){            
             std::cout << "missing keys" << std::endl;
             return;
         }
-        session->isQuoteTrusted = false;
-
+        
+        size_t offset = 0;                                
         TPM2B_PUBLIC keyInfo = session->pubKey;
         TPM2B_ATTEST attest_blob = {};
         TPMT_SIGNATURE signature;
         TPMS_ATTEST attest;        
-        size_t offset = 0;                                
-        int32_t result = decodeAttestationCbor((uint8_t*)req.body.data(),req.body.length(),&attest_blob,&signature);                    
-        bool signatureMatch = verifyQuoteSignature(keyInfo,attest_blob,signature);
-        if (!signatureMatch) {          
-            std::cout << "handleQuote signature failed" << std::endl;  
-            session->isQuoteTrusted = false;
-            return;
-        }else{
-            std::cout << "attestation signature matches " << std::endl;
-            session->isQuoteTrusted = true;
+
+
+        int32_t result = decodeAttestationCbor((uint8_t*)req.body.data(),req.body.length(),&attest_blob,&signature);      
+        if(result){
+            
         }
         TSS2_RC rc = Tss2_MU_TPMS_ATTEST_Unmarshal(
             attest_blob.attestationData,
@@ -200,6 +225,42 @@ void handleQuote(std::map<std::string, ServerSession*>& sessionMap,const httplib
             &offset,
             &attest
         );   
+        
+        if(rc != TSS2_RC_SUCCESS){
+            // Couldnt parse the TPMS_ATTEST
+            std::cout << "failed TPMS_ATTEST parse" << std::endl;
+            return;
+        }
+
+        bool quoteIsFresh = false;
+        bool signatureMatch = verifyQuoteSignature(keyInfo,attest_blob,signature);
+
+        if(session->lastValidAttestationTimestamp != 0){
+            quoteIsFresh = checkQuoteFreshness(session, attest);
+        }else{
+            quoteIsFresh = true; // The first quote is always considered fresh
+        }
+
+        std::cout << "signatureMatch " << signatureMatch << " fresh: " << quoteIsFresh << std::endl;
+
+        if (signatureMatch && quoteIsFresh) {          
+            std::cout << "handleQuote signature matches" << std::endl;  
+            session->lastValidAttestationTimestamp = attest.clockInfo.clock;
+            session->isQuoteTrusted = true;
+        }
+        else{
+            std::cout << "attestation signature fails " << std::endl;
+            session->isQuoteTrusted = false;
+        }
+
+       
+        // Quote digest is the same as before, so 
+        if((memcmp(session->lastValidAttestation,attest.attested.quote.pcrDigest.buffer, attest.attested.quote.pcrDigest.size) == 0)){
+            std::cout << "attestation digest did not change" << std::endl;
+            session->isMeasurementsTrusted = true;
+            checkSessionTrustworthiness(session);
+        }
+        
         session->attestLength = attest.attested.quote.pcrDigest.size;
         memcpy( session->lastValidAttestation,attest.attested.quote.pcrDigest.buffer, attest.attested.quote.pcrDigest.size );
         res.set_content("", "text/plain");
@@ -213,11 +274,9 @@ void zeroPcrs(uint8_t pcrs[30][EVP_MAX_MD_SIZE]) {
 }
 
 
-int main() {
-    httplib::Server svr;
-    std::map<std::string,ServerSession*> currentSessions;            
-    (new Database("sesh.db"))->initFromScript("src/db/init.sql");
-    
+void serverThread() {
+    httplib::Server svr;    
+    (new Database("sesh.db"))->initFromScript("src/db/init.sql");    
     svr.Post("/ima", [&](const httplib::Request & req, httplib::Response &res) {       
         handleIma(currentSessions,req,res);
     });
@@ -236,4 +295,28 @@ int main() {
     if (!svr.listen("0.0.0.0", 8084)) {
         std::cerr << "Error: server failed to start.\n";
     }
+}
+
+void enroll(char* ipAddr, char* whitelistPath, char* pcrWhitelistPath) {
+    std::cout << "enrolling attester at: " << ipAddr <<std::endl;
+
+}
+
+int main() {
+    std::thread server(serverThread);
+    bool exit = false;
+    while(!exit) {
+        
+        /*std::cout << std::endl << "> ";
+        
+        char ipAddr[64];
+        char whitelistPath[256];
+        char pcrWhitelistPath[256];
+
+        scanf("%s %s %s",ipAddr,whitelistPath,pcrWhitelistPath);
+        enroll(ipAddr,whitelistPath,pcrWhitelistPath);
+        */
+    }
+
+    server.join();    
 }

@@ -19,23 +19,20 @@ char *sendPostCbor(const char *url, const void *cbor_data, size_t cbor_len,char 
     CURLcode res;
     if (!curl || !response) return NULL;
     struct curl_slist *headers = NULL;
-
-    headers = curl_slist_append(headers, "Content-Type: text/plain");
+    headers = curl_slist_append(headers, "Content-Type: application/cbor");
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, cbor_data);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)cbor_len);
-
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     
     res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
         fprintf(stderr, "libcurl error: %s\n", curl_easy_strerror(res));
-        free(response);
         response = NULL;
     }
-    printf("res: %s ", response);
+    //printf("res: %s ", response);
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     return response;

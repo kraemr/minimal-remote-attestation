@@ -30,12 +30,9 @@ TSS2_RC getAttestationKeyHandle(ESYS_CONTEXT* ctx,ESYS_TR* attestationKeyHandle 
 TSS2_RC createAttestationKey( 
   ESYS_CONTEXT* ctx ,
   ESYS_TR* attestationKeyHandle, 
-  TPM2B_PUBLIC **outAkPublic,   
-  TPM2B_PRIVATE **outAkPrivate)
+  TPM2B_PUBLIC **outAkPublic)
 { 
     TSS2_RC rc = 0;
-    
-    //  Start: Create Primary Key (EK or SRK)
     ESYS_TR primaryHandle;
     TPM2B_AUTH authValue = {.size = 0};
     TPM2B_SENSITIVE_CREATE inSensitive = {
@@ -50,39 +47,40 @@ TSS2_RC createAttestationKey(
           },
     };
 
-    TPM2B_PUBLIC inPublic = {
-      .size = 0,
-      .publicArea =
-          {
-              .type = TPM2_ALG_RSA,
-              .nameAlg = TPM2_ALG_SHA256,
-              .objectAttributes =
-                  TPMA_OBJECT_RESTRICTED | TPMA_OBJECT_DECRYPT |
-                  TPMA_OBJECT_FIXEDTPM | TPMA_OBJECT_FIXEDPARENT |
-                  TPMA_OBJECT_SENSITIVEDATAORIGIN | TPMA_OBJECT_USERWITHAUTH,
-              .authPolicy =
-                  {
-                      .size = 0,
-                  },
-                
-              .parameters.rsaDetail =
-                  {
-                      .symmetric =
-                          {
-                              .algorithm = TPM2_ALG_AES,
-                              .keyBits.aes = 128,
-                              .mode.aes = TPM2_ALG_CFB,
-                          },
-                      .scheme =
-                          {
-                              .scheme = TPM2_ALG_NULL,
-                          },
-                      .keyBits = 2048,
-                      .exponent = 0,
-                  },
-              .unique.rsa.size = 0,
-          },
-    };
+TPM2B_PUBLIC inPublic = {
+    .size = 0,
+    .publicArea = {
+        .type = TPM2_ALG_RSA,
+        .nameAlg = TPM2_ALG_SHA256,
+        .objectAttributes =
+            TPMA_OBJECT_RESTRICTED | TPMA_OBJECT_DECRYPT |
+            TPMA_OBJECT_FIXEDTPM | TPMA_OBJECT_FIXEDPARENT |
+            TPMA_OBJECT_SENSITIVEDATAORIGIN | TPMA_OBJECT_USERWITHAUTH,
+        .authPolicy = {
+            .size = 0,
+        },
+        .parameters = {
+        .rsaDetail = {
+            .symmetric = {
+                .algorithm = TPM2_ALG_AES,
+                .keyBits = { .aes = 128 },
+                .mode = { .aes = TPM2_ALG_CFB },
+            },
+            .scheme = {
+                .scheme = TPM2_ALG_NULL,
+            },
+            .keyBits = 2048,
+            .exponent = 0,
+        }
+        },
+        .unique = {
+            .rsa = {
+                .size = 0,
+            },
+        },
+    },
+};
+
     TPM2B_DATA outsideInfo = {.size = 0};
     TPML_PCR_SELECTION creationPCR = {.count = 0};
     TPM2B_PUBLIC *outPublic = NULL;
@@ -101,30 +99,45 @@ TSS2_RC createAttestationKey(
         return 1;
     }
 
-    // Now: Create Attestation Key under Primary
+    //Create Attestation Key under EK
     TPM2B_PUBLIC akTemplate = {
-      .size = 0,
-      .publicArea = {
-          .type = TPM2_ALG_RSA,
-          .nameAlg = TPM2_ALG_SHA256,
-          .objectAttributes = TPMA_OBJECT_SIGN_ENCRYPT | TPMA_OBJECT_FIXEDTPM |
-                              TPMA_OBJECT_FIXEDPARENT |
-                              TPMA_OBJECT_SENSITIVEDATAORIGIN |
-                              TPMA_OBJECT_USERWITHAUTH,
-          .authPolicy = {.size = 0},
-          .parameters.rsaDetail =
-              {
-                  .symmetric = {.algorithm = TPM2_ALG_NULL},
-                  .scheme =
-                      {
-                          .scheme = TPM2_ALG_RSASSA,
-                          .details.rsassa.hashAlg = TPM2_ALG_SHA256,
-                      },
-                  .keyBits = 2048,
-                  .exponent = 0,
-              },
-          .unique.rsa = {.size = 0},
-          }};
+    .size = 0,
+    .publicArea = {
+        .type = TPM2_ALG_RSA,
+        .nameAlg = TPM2_ALG_SHA256,
+        .objectAttributes = TPMA_OBJECT_SIGN_ENCRYPT |
+                            TPMA_OBJECT_FIXEDTPM |
+                            TPMA_OBJECT_FIXEDPARENT |
+                            TPMA_OBJECT_SENSITIVEDATAORIGIN |
+                            TPMA_OBJECT_USERWITHAUTH,
+        .authPolicy = {
+            .size = 0,
+        },
+        .parameters = {
+        .rsaDetail = {
+            .symmetric = {
+                .algorithm = TPM2_ALG_NULL,
+            },
+            .scheme = {
+                .scheme = TPM2_ALG_RSASSA,
+                .details = {
+                    .rsassa = {
+                        .hashAlg = TPM2_ALG_SHA256,
+                    },
+                },
+            },
+            .keyBits = 2048,
+            .exponent = 0,
+        },        
+        },
+        .unique = {
+            .rsa = {
+                .size = 0,
+            },
+        },
+        
+    },
+    };
 
     TPM2B_SENSITIVE_CREATE akSensitive = {.size = 0,
                                         .sensitive = {
@@ -137,10 +150,10 @@ TSS2_RC createAttestationKey(
     TPM2B_CREATION_DATA *akCreationData;
     TPM2B_DIGEST *akCreationHash;
     TPMT_TK_CREATION *akCreationTicket;
-
+    TPM2B_PRIVATE *akOutPrivate;
     rc = Esys_Create(ctx, primaryHandle, ESYS_TR_PASSWORD, ESYS_TR_NONE,
                        ESYS_TR_NONE, &akSensitive, &akTemplate, &outsideInfo,
-                    &creationPCR, outAkPrivate, outAkPublic, &akCreationData,
+                    &creationPCR, &akOutPrivate, outAkPublic, &akCreationData,
                    &akCreationHash, &akCreationTicket);
     if (rc != TSS2_RC_SUCCESS) {
         printf("Esys_Create (AK) failed: 0x%x\n", rc);
@@ -150,7 +163,7 @@ TSS2_RC createAttestationKey(
     // Load the AK into TPM
     //ESYS_TR akHandle;
     rc = Esys_Load(ctx, primaryHandle, ESYS_TR_PASSWORD, ESYS_TR_NONE,
-                 ESYS_TR_NONE, *outAkPrivate,*outAkPublic, attestationKeyHandle);
+                 ESYS_TR_NONE, akOutPrivate,*outAkPublic, attestationKeyHandle);
     if (rc != TSS2_RC_SUCCESS) {
         printf("Esys_Load (AK) failed: 0x%x\n", rc);
         return 1;
