@@ -1,5 +1,5 @@
 
-/*#include "makecredential.h"
+#include "makecredential.h"
 #define LABEL "IDENTITY"
 #define AES_KEY_SIZE 16  // 128-bit
 #define HMAC_KEY_SIZE 16
@@ -36,11 +36,56 @@ int KDFa(const EVP_MD *md, const uint8_t *key, size_t key_len,
     return 1;
 }
 
+#include <tss2/tss2_mu.h>     // For marshaling
+#include <openssl/evp.h>      // For hashing
+#include <stdint.h>
+#include <string.h>
 
+// Helper: TPM_ALG_ID to OpenSSL EVP_MD
+const EVP_MD* alg_to_md(TPMI_ALG_HASH alg) {
+    switch (alg) {
+        case TPM2_ALG_SHA1:   return EVP_sha1();
+        case TPM2_ALG_SHA256: return EVP_sha256();
+        case TPM2_ALG_SHA384: return EVP_sha384();
+        case TPM2_ALG_SHA512: return EVP_sha512();
+        default: return NULL;
+    }
+}
+
+// Function to compute AK name
+int compute_ak_name(const TPM2B_PUBLIC *public, uint8_t *ak_name, size_t *ak_name_len) {
+    uint8_t buffer[sizeof(TPMT_PUBLIC)] = {0};
+    size_t offset = 0;
+
+    // Marshal TPMT_PUBLIC (not TPM2B_PUBLIC)
+    TSS2_RC rc = Tss2_MU_TPMT_PUBLIC_Marshal(&public->publicArea, buffer, sizeof(buffer), &offset);
+    if (rc != TSS2_RC_SUCCESS) return -1;
+
+    const EVP_MD *md = alg_to_md(public->publicArea.nameAlg);
+    if (!md) return -2;
+
+    unsigned int hash_len = EVP_MD_size(md);
+    uint8_t hash[EVP_MAX_MD_SIZE];
+
+    // Compute hash
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx, md, NULL);
+    EVP_DigestUpdate(ctx, buffer, offset);
+    EVP_DigestFinal_ex(ctx, hash, &hash_len);
+    EVP_MD_CTX_free(ctx);
+
+    // Build the AK name: 2 bytes of nameAlg + hash
+    ak_name[0] = (public->publicArea.nameAlg >> 8) & 0xFF;
+    ak_name[1] = public->publicArea.nameAlg & 0xFF;
+    memcpy(ak_name + 2, hash, hash_len);
+    *ak_name_len = 2 + hash_len;
+
+    return 0;
+}
 
 int makeCredential(
     X509 *ek_cert,
-    TPM2B_PUBLIC publicKey,
+    TPM2B_PUBLIC* publicKey,
     const uint8_t *secret, size_t secret_len,
     uint8_t **out_blob, size_t *out_blob_len,
     uint8_t **out_seed, size_t *out_seed_len
@@ -48,6 +93,7 @@ int makeCredential(
     EVP_PKEY *ek_pubkey = X509_get_pubkey(ek_cert);
     if (!ek_pubkey || EVP_PKEY_base_id(ek_pubkey) != EVP_PKEY_RSA)
         return 0;
+
 
     RSA *ek_rsa = EVP_PKEY_get1_RSA(ek_pubkey);
     EVP_PKEY_free(ek_pubkey);
@@ -70,11 +116,15 @@ int makeCredential(
     *out_seed = encrypted_seed;
     *out_seed_len = enc_seed_len;
 
+    uint8_t akName[EVP_MAX_MD_SIZE + 2]; 
+    uint64_t akNameLen = 0;
+    compute_ak_name(&publicKey,akName,&akNameLen);
+
     // Step 3: Derive keys from seed
     uint8_t sym_key[AES_KEY_SIZE];
     uint8_t hmac_key[HMAC_KEY_SIZE];
-    KDFa(EVP_sha256(), seed, sizeof(seed), "STORAGE", ak_name, ak_name_len, sym_key, AES_KEY_SIZE);
-    KDFa(EVP_sha256(), seed, sizeof(seed), "INTEGRITY", ak_name, ak_name_len, hmac_key, HMAC_KEY_SIZE);
+    KDFa(EVP_sha256(), seed, sizeof(seed), "STORAGE", akName, akNameLen, sym_key, AES_KEY_SIZE);
+    KDFa(EVP_sha256(), seed, sizeof(seed), "INTEGRITY", akName, akNameLen, hmac_key, HMAC_KEY_SIZE);
 
     // Step 4: Encrypt secret using AES-CFB (with IV=zero)
     EVP_CIPHER_CTX *aes_ctx = EVP_CIPHER_CTX_new();
@@ -86,10 +136,10 @@ int makeCredential(
     EVP_EncryptFinal_ex(aes_ctx, enc_secret + outlen, &tmplen);
     EVP_CIPHER_CTX_free(aes_ctx);
 
-    size_t total_len = secret_len + ak_name_len;
+    size_t total_len = secret_len + akNameLen;
     uint8_t *hmac_input = malloc(total_len);
     memcpy(hmac_input, enc_secret, secret_len);
-    memcpy(hmac_input + secret_len, ak_name, ak_name_len);
+    memcpy(hmac_input + secret_len, akName, akNameLen);
 
     // Step 5: Create HMAC
     uint8_t hmac_out[EVP_MAX_MD_SIZE];
@@ -113,4 +163,4 @@ int makeCredential(
     free(enc_secret);
     RSA_free(ek_rsa);
     return 1;
-}*/
+}

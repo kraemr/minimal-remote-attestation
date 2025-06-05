@@ -170,7 +170,8 @@ TPM2B_PUBLIC inPublic = {
     }
     ESYS_TR authHandle = ESYS_TR_RH_OWNER; // Usually TPM_RH_OWNER
     ESYS_TR out = 0;
-    // Authorize with the TPM owner hierarchy
+    
+    /*// Authorize with the TPM owner hierarchy
     rc = Esys_EvictControl(
     ctx,
     authHandle,         // TPM_RH_OWNER
@@ -186,7 +187,7 @@ TPM2B_PUBLIC inPublic = {
         return rc;
     }
     
-    (*attestationKeyHandle) = out;
+    (*attestationKeyHandle) = out;*/
     printf("Attestation Key created and loaded successfully.\n");
     return TSS2_RC_SUCCESS;
 }

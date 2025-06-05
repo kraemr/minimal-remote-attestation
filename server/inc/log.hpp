@@ -13,4 +13,4 @@ enum LOG_MESSAGE_TYPE {
 
 
 
-void writeLogMessage( uint64_t unixTs, LOG_MESSAGE_TYPE msgType, std::string message, std::string ipAddr, std::string deviceId);
+void writeLogMessage(LOG_MESSAGE_TYPE msgType, std::string message, std::string ipAddr,std::string sessionId, std::string deviceId);

@@ -16,6 +16,10 @@
 #include <tss2/tss2_tpm2_types.h>
 #include <unistd.h>
 
+#include <openssl/x509.h>
+#include <openssl/pem.h>
+#include <openssl/x509_vfy.h>
+
 #define BUFFERSIZE 500
 #define EK_CERT_NV_INDEX 0x01C00002  // RSA EK cert NV index
 
@@ -98,8 +102,15 @@ int32_t enroll(ESYS_CONTEXT* ectx, ESYS_TR* attestationKeyHandle, TPM2B_PUBLIC**
   TPMT_SIGNATURE* signature;
   
   getEKCertificate(buf,&ekCertLen);
+
   rc = createAttestationKey(ectx,attestationKeyHandle,publicKey);  
   rc = Esys_Certify(ectx, *attestationKeyHandle, *attestationKeyHandle, ESYS_TR_PASSWORD, ESYS_TR_PASSWORD,ESYS_TR_NONE, &qualifyingData, &inScheme, &attest, &signature);
+  
+  BIO* bio = BIO_new_mem_buf(buf, ekCertLen);
+  if (!bio) return 0;
+  X509* cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+  BIO_free(bio);  
+
   if(rc != TSS2_RC_SUCCESS){
     printf("Esys_Certify failed for attestation Key %d \n",rc);
   }
@@ -136,13 +147,12 @@ int32_t main(int32_t argc, char *argv[]) {
     return 1;
   }  
   initCurl();    
-  time_t lastTs = 0;
+  time_t lastTs = time(NULL);
   int i = 0;
   for (;;) {
     sleep:
-      sleep(1);
 
-    // send a quote approximately every 5 minutes
+    
     if( (time(NULL) - lastTs) > FIVEMINUTES ) {
       printf("sendquote time diff %d\n", (time(NULL) - lastTs));
       sendQuote(ectx, attestationKeyHandle);
