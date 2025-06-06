@@ -10,10 +10,10 @@
 #include <stdint.h>
 #include <tss2/tss2_tpm2_types.h>
 
-extern int makeCredential(
-    X509 *ek_cert,
-    TPM2B_PUBLIC* publicKey,
-    const uint8_t *secret, size_t secret_len,
-    uint8_t **out_blob, size_t *out_blob_len,
-    uint8_t **out_seed, size_t *out_seed_len
-);
+extern TPM2_RC computeAkName(const TPM2B_PUBLIC *pubKey, TPM2B_NAME *nameOut);
+bool kdfa(TPMI_ALG_HASH hashAlg,
+          const uint8_t *key, size_t key_len,
+          const char *label,
+          const uint8_t *contextU, size_t contextU_len,
+          const uint8_t *contextV, size_t contextV_len,
+          uint8_t *output, size_t bits);

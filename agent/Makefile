@@ -2,7 +2,7 @@
 
 CC = gcc
 CFLAGS = -Wall -Wextra 
-LDFLAGS = -lssl -lcrypto -ltss2-esys -ltss2-mu -lcbor -lcurl 
+LDFLAGS = -lssl -lcrypto -ltss2-esys -ltss2-mu -lcbor -lcurl -fsanitize=address
 
 AGENT_SRC = agent.c
 VERIFY_SRC = $(wildcard ../common/ima_log_lib/src/*.c)
