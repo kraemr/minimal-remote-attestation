@@ -238,8 +238,6 @@ bool checkQuoteFreshness(ServerSession* session, TPMS_ATTEST quote) {
     // Defines the amount a quote can come later/earlier than the specified timeframe
     const int64_t allowedDrift = 6000;
     const int64_t timeFrame = 60000; // one minute in ms
-    std::cout << " quote clock: " << quote.clockInfo.clock << std::endl;
-    std::cout << " last valid attest" << session->lastValidAttestationTimestamp  << std::endl;
     bool isMonotonic = (quote.clockInfo.clock > session->lastValidAttestationTimestamp);
     int64_t timeDiff = (quote.clockInfo.clock - session->lastValidAttestationTimestamp);
     // Old Quote was used
@@ -248,7 +246,6 @@ bool checkQuoteFreshness(ServerSession* session, TPMS_ATTEST quote) {
     }
 
     bool isWithinTimeFrame = (abs(timeDiff - timeFrame) < allowedDrift);
-    session->lastValidAttestationTimestamp = quote.clockInfo.clock;
     return isMonotonic && isWithinTimeFrame;
 }
 
@@ -315,7 +312,6 @@ void handleQuote(std::map<std::string, ServerSession*>& sessionMap,const httplib
     EVP_MD_CTX_free(mdctx);
 
     bool digest_match = memcmp(expected_pcr, attest.attested.quote.pcrDigest.buffer, attest.attested.quote.pcrDigest.size)==0;
-    std::cout << quote_authentic << " " << session->waitingForMeasurements << " " << digest_match << std::endl;
     // quote comes in authentic -> set as last valid attestatian and boolean flag waiting_for_measurements = true;
     if(quote_authentic && !session->waitingForMeasurements) {
         memcpy(
