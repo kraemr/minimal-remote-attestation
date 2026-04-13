@@ -84,15 +84,15 @@ std::string handleSessionHeaders(const httplib::Request & req) {
     return req.get_header_value("X-Session-Id");
 }
 
-bool checkSessionTrustworthiness(ServerSession* sesion) {
-    if(sesion == nullptr){
+bool checkSessionTrustworthiness(ServerSession* session) {
+    if(session == nullptr){
         return false;
     }
-    bool trustwothy = sesion->isQuoteTrusted && sesion->isAkTrusted && sesion->isEKTrusted && sesion->isMeasurementsTrusted;
-    std::cout << "sesion->isQuoteTrusted" << sesion->isQuoteTrusted << std::endl;
-    std::cout << "sesion->isAkTrusted" << sesion->isAkTrusted << std::endl;
-    std::cout << "sesion->isEKTrusted" << sesion->isEKTrusted << std::endl;
-    std::cout << "sesion->isMeasurementsTrusted" << sesion->isMeasurementsTrusted << std::endl;
+    bool trustwothy = session->isQuoteTrusted && session->isAkTrusted && session->isEKTrusted && session->isMeasurementsTrusted;
+    std::cout << "session->isQuoteTrusted" << session->isQuoteTrusted << std::endl;
+    std::cout << "session->isAkTrusted" << session->isAkTrusted << std::endl;
+    std::cout << "session->isEKTrusted" << session->isEKTrusted << std::endl;
+    std::cout << "session->isMeasurementsTrusted" << session->isMeasurementsTrusted << std::endl;
     return trustwothy;
 }
 
@@ -100,7 +100,10 @@ bool checkMeasurementsAreWhitelisted(ServerSession* session, const ImaEventSha25
     const char * pathWhitelist = "whitelist"; 
     // In Future sessions could also have their own specific whitelists associated to Devices
     std::unordered_map<std::string, FileInformation> whitelist;
-    readWhitelist(pathWhitelist, whitelist);    
+    
+    // read just once instead of every call
+    readWhitelist(pathWhitelist, whitelist);
+
     for(size_t i = 0; i < length; i++) { 
         const ImaEventSha256* event = &events[i];
         if(events[i].templateDataLength == 0  ){
